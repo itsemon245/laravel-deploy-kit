@@ -1,0 +1,62 @@
+name: Validate App Manifest
+
+on:
+  workflow_call:
+    inputs:
+      app_env:
+        required: false
+        type: string
+        default: staging
+      manifest_path:
+        required: false
+        type: string
+        default: deploy/manifest.yml
+  workflow_dispatch:
+    inputs:
+      app_env:
+        required: false
+        type: string
+        default: staging
+      manifest_path:
+        required: false
+        type: string
+        default: deploy/manifest.yml
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    env:
+      APP_DIR: ${{ github.workspace }}/app
+      KIT_DIR: ${{ github.workspace }}/deploy-kit
+      ANSIBLE_CONFIG: ${{ github.workspace }}/deploy-kit/ansible/ansible.cfg
+      ANSIBLE_ROLES_PATH: ${{ github.workspace }}/deploy-kit/ansible/roles
+      ANSIBLE_FILTER_PLUGINS: ${{ github.workspace }}/deploy-kit/ansible/filter_plugins
+    steps:
+      - name: Checkout app repository
+        uses: actions/checkout@v4
+        with:
+          path: app
+
+      - name: Checkout deploy kit
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.action_repository }}
+          ref: ${{ github.action_ref }}
+          path: deploy-kit
+
+      - name: Install Ansible
+        run: |
+          python -m pip install --user --upgrade pip
+          python -m pip install --user ansible
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Install Ansible requirements
+        run: ansible-galaxy install -r "$KIT_DIR/ansible/requirements.yml"
+
+      - name: Validate manifest
+        working-directory: app
+        run: |
+          "$KIT_DIR/bin/validate-manifest" "${{ inputs.manifest_path }}" "${{ inputs.app_env }}"
