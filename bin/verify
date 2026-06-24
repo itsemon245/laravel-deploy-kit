@@ -4,6 +4,10 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
+export ANSIBLE_CONFIG="${ANSIBLE_CONFIG:-$ROOT_DIR/ansible/ansible.cfg}"
+export ANSIBLE_ROLES_PATH="${ANSIBLE_ROLES_PATH:-$ROOT_DIR/ansible/roles}"
+export ANSIBLE_FILTER_PLUGINS="${ANSIBLE_FILTER_PLUGINS:-$ROOT_DIR/ansible/filter_plugins}"
+
 require_optional="${LDK_REQUIRE_OPTIONAL_TOOLS:-false}"
 VENV_BIN="$ROOT_DIR/.venv/bin"
 

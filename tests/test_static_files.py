@@ -56,6 +56,20 @@ class StaticFilesTest(unittest.TestCase):
         self.assertIn("docker.io", dockerfile)
         self.assertIn("docker-compose-v2", dockerfile)
 
+    def test_verify_exports_ansible_paths_for_ci(self):
+        script = (ROOT / "bin" / "verify").read_text()
+
+        self.assertIn("export ANSIBLE_CONFIG=", script)
+        self.assertIn("export ANSIBLE_ROLES_PATH=", script)
+        self.assertIn("export ANSIBLE_FILTER_PLUGINS=", script)
+
+    def test_ci_uses_go_version_supported_by_actionlint_latest(self):
+        workflow = yaml.safe_load((ROOT / ".github" / "workflows" / "ci.yml").read_text())
+        steps = workflow["jobs"]["static"]["steps"]
+        setup_go_steps = [step for step in steps if step.get("uses") == "actions/setup-go@v5"]
+
+        self.assertEqual(setup_go_steps[0]["with"]["go-version"], "1.25")
+
 
 if __name__ == "__main__":
     unittest.main()
