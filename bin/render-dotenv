@@ -1,0 +1,76 @@
+#!/usr/bin/env python3
+import argparse
+import json
+import re
+import shlex
+import sys
+from pathlib import Path
+
+
+KEY_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Render dotenv content from normalized resolved_secrets JSON."
+    )
+    parser.add_argument("--input", "-i", default="-", help="JSON file, or '-' for stdin")
+    parser.add_argument("--output", "-o", default="-", help="Output path, or '-' for stdout")
+    parser.add_argument(
+        "--classes",
+        default="app",
+        help="Comma-separated secret classes to render, later classes override earlier ones",
+    )
+    return parser.parse_args()
+
+
+def load_json(path):
+    if path == "-":
+        return json.load(sys.stdin)
+    with Path(path).open("r", encoding="utf-8") as handle:
+        return json.load(handle)
+
+
+def flatten(data, classes):
+    values = {}
+    for class_name in classes:
+        class_values = data.get(class_name, {})
+        if not isinstance(class_values, dict):
+            raise SystemExit(f"Secret class '{class_name}' must be a JSON object")
+        values.update(class_values)
+    return values
+
+
+def dotenv_quote(value):
+    if value is None:
+        return '""'
+    return shlex.quote(str(value))
+
+
+def render(values):
+    lines = []
+    for key in sorted(values):
+        if not KEY_RE.match(key):
+            raise SystemExit(f"Invalid dotenv key: {key}")
+        lines.append(f"{key}={dotenv_quote(values[key])}")
+    return "\n".join(lines) + ("\n" if lines else "")
+
+
+def main():
+    args = parse_args()
+    classes = [item.strip() for item in args.classes.split(",") if item.strip()]
+    if not classes:
+        raise SystemExit("At least one class must be selected")
+
+    data = load_json(args.input)
+    content = render(flatten(data, classes))
+
+    if args.output == "-":
+        sys.stdout.write(content)
+    else:
+        Path(args.output).write_text(content, encoding="utf-8")
+
+
+if __name__ == "__main__":
+    main()
+

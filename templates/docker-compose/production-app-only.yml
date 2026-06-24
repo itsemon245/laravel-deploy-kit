@@ -1,0 +1,25 @@
+services:
+  web:
+    environment:
+      DB_HOST: ${DB_HOST}
+      REDIS_HOST: ${REDIS_HOST}
+
+  queues:
+    environment:
+      DB_HOST: ${DB_HOST}
+      REDIS_HOST: ${REDIS_HOST}
+
+  scheduler:
+    environment:
+      DB_HOST: ${DB_HOST}
+      REDIS_HOST: ${REDIS_HOST}
+
+  ws:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    command: php artisan reverb:start --host=0.0.0.0 --port=8081
+    restart: unless-stopped
+

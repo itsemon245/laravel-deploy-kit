@@ -1,0 +1,12 @@
+# Placeholder Redis profile. Tune real values in a private inventory.
+bind 0.0.0.0
+protected-mode yes
+port 6379
+requirepass {{ redis_password }}
+maxmemory {{ redis_maxmemory | default("256mb") }}
+maxmemory-policy {{ redis_maxmemory_policy | default("allkeys-lru") }}
+appendonly {{ redis_appendonly | default("yes") }}
+save 900 1
+save 300 10
+save 60 10000
+

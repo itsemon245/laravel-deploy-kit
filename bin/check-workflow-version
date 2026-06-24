@@ -1,0 +1,71 @@
+#!/usr/bin/env python3
+import argparse
+import re
+import sys
+from pathlib import Path
+
+
+USES_RE = re.compile(
+    r"uses:\s*"
+    r"(?P<repo>[\w.-]+/laravel-deploy-kit)"
+    r"/\.github/workflows/(?P<workflow>[\w.-]+\.yml)"
+    r"@(?P<ref>[^\s#]+)"
+)
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Check app workflows for expected laravel-deploy-kit refs."
+    )
+    parser.add_argument("--path", default=".", help="App repo path to scan")
+    parser.add_argument("--expected-ref", default="v1", help="Expected workflow ref")
+    parser.add_argument("--quiet", action="store_true", help="Only print mismatches")
+    return parser.parse_args()
+
+
+def workflow_files(root):
+    workflows_dir = root / ".github" / "workflows"
+    if not workflows_dir.exists():
+        return []
+    return sorted(
+        path
+        for path in workflows_dir.iterdir()
+        if path.is_file() and path.suffix in {".yml", ".yaml"}
+    )
+
+
+def main():
+    args = parse_args()
+    root = Path(args.path)
+    mismatches = []
+    matches = []
+
+    for path in workflow_files(root):
+        content = path.read_text(encoding="utf-8")
+        for match in USES_RE.finditer(content):
+            record = (path, match.group("repo"), match.group("workflow"), match.group("ref"))
+            if match.group("ref") != args.expected_ref:
+                mismatches.append(record)
+            else:
+                matches.append(record)
+
+    if not matches and not mismatches:
+        print("No laravel-deploy-kit reusable workflow references found.")
+        return 2
+
+    for path, repo, workflow, ref in mismatches:
+        print(
+            f"OUTDATED {path}: {repo}/.github/workflows/{workflow}@{ref} "
+            f"(expected @{args.expected_ref})"
+        )
+
+    if not args.quiet:
+        for path, repo, workflow, ref in matches:
+            print(f"OK {path}: {repo}/.github/workflows/{workflow}@{ref}")
+
+    return 1 if mismatches else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
+

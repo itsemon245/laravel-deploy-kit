@@ -1,0 +1,26 @@
+name: Bootstrap App VM
+
+on:
+  workflow_dispatch:
+    inputs:
+      app_env:
+        description: Target environment name
+        required: true
+        type: choice
+        options:
+          - staging
+          - production
+
+concurrency:
+  group: bootstrap-vm-${{ inputs.app_env }}
+  cancel-in-progress: false
+
+jobs:
+  bootstrap:
+    uses: your-github-org/laravel-deploy-kit/.github/workflows/vm-bootstrap.yml@v1
+    with:
+      app_env: ${{ inputs.app_env }}
+      manifest_path: deploy/manifest.yml
+      app_repo_url: git@github.com:your-github-org/demo-laravel.git
+    secrets: inherit
+

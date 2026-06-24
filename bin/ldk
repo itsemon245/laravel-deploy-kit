@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+usage() {
+  cat <<'USAGE'
+Usage:
+  ldk validate-manifest [manifest-path] [app-env]
+  ldk resolve-inventory --output inventory.ini [options]
+  ldk render-dotenv --input secrets.json [--classes app] [--output .env]
+  ldk check-workflow-version --path . [--expected-ref v1]
+
+Commands:
+  validate-manifest  Validate a deploy manifest, including environment overrides.
+  resolve-inventory  Resolve an Ansible inventory using the supported fallback chain.
+  render-dotenv      Render a dotenv file from normalized JSON secrets.
+  check-workflow-version
+                     Report app workflows that do not use the expected deploy-kit ref.
+USAGE
+}
+
+command_name="${1:-}"
+case "$command_name" in
+  validate|validate-manifest)
+    shift || true
+    exec "$ROOT_DIR/bin/validate-manifest" "$@"
+    ;;
+  resolve-inventory)
+    shift || true
+    exec "$ROOT_DIR/bin/resolve-inventory" "$@"
+    ;;
+  render-dotenv)
+    shift || true
+    exec "$ROOT_DIR/bin/render-dotenv" "$@"
+    ;;
+  check-workflow-version)
+    shift || true
+    exec "$ROOT_DIR/bin/check-workflow-version" "$@"
+    ;;
+  -h|--help|help|"")
+    usage
+    ;;
+  *)
+    echo "Unknown command: $command_name" >&2
+    usage >&2
+    exit 2
+    ;;
+esac

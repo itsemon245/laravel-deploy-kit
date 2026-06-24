@@ -1,0 +1,21 @@
+name: Deploy
+
+on:
+  push:
+    branches:
+      - staging
+      - production
+  workflow_dispatch: {}
+
+concurrency:
+  group: deploy-${{ github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    uses: your-github-org/laravel-deploy-kit/.github/workflows/laravel-vm-deploy.yml@v1
+    with:
+      app_env: ${{ github.ref_name }}
+      manifest_path: deploy/manifest.yml
+    secrets: inherit
+

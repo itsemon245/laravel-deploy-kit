@@ -1,0 +1,151 @@
+#!/usr/bin/env python3
+import argparse
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description=(
+            "Resolve Ansible inventory using fallback order: environment secret, "
+            "SOPS file, then Infisical secret."
+        )
+    )
+    parser.add_argument("--output", required=True, help="Inventory output path")
+    parser.add_argument(
+        "--github-secret-env",
+        default="LDK_INVENTORY",
+        help="Environment variable containing inventory text",
+    )
+    parser.add_argument("--sops-file", default="", help="Encrypted SOPS inventory file")
+    parser.add_argument("--sops-binary", default="sops")
+    parser.add_argument("--infisical-project-id", default="")
+    parser.add_argument("--infisical-env", default="")
+    parser.add_argument("--infisical-path", default="/deploy")
+    parser.add_argument("--infisical-key", default="ANSIBLE_INVENTORY")
+    parser.add_argument("--infisical-url", default="")
+    parser.add_argument("--infisical-binary", default="infisical")
+    return parser.parse_args()
+
+
+def is_nonempty(value):
+    return value is not None and value.strip() != ""
+
+
+def run_command(argv, env=None):
+    try:
+        result = subprocess.run(
+            argv,
+            check=True,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=env,
+        )
+    except FileNotFoundError as exc:
+        raise SystemExit(f"Required command not found: {argv[0]}") from exc
+    except subprocess.CalledProcessError as exc:
+        detail = exc.stderr.strip() or exc.stdout.strip() or "command failed"
+        raise SystemExit(f"{argv[0]} failed while resolving inventory: {detail}") from exc
+    return result.stdout
+
+
+def inventory_from_env(var_name):
+    value = os.environ.get(var_name, "")
+    return value if is_nonempty(value) else ""
+
+
+def inventory_from_sops(path, binary):
+    if not is_nonempty(path):
+        return ""
+    file_path = Path(path)
+    if not file_path.exists():
+        return ""
+    return run_command([binary, "--decrypt", str(file_path)])
+
+
+def normalize_infisical_json(raw, key):
+    data = json.loads(raw)
+    if isinstance(data, dict) and "secrets" in data:
+        data = data["secrets"]
+
+    if isinstance(data, dict):
+        value = data.get(key)
+        return str(value) if value is not None else ""
+
+    if isinstance(data, list):
+        for item in data:
+            if not isinstance(item, dict):
+                continue
+            item_key = item.get("key") or item.get("secretKey") or item.get("Key")
+            if item_key == key:
+                value = (
+                    item.get("value")
+                    if "value" in item
+                    else item.get("secretValue")
+                    if "secretValue" in item
+                    else item.get("Value")
+                )
+                return str(value) if value is not None else ""
+
+    return ""
+
+
+def inventory_from_infisical(args):
+    required = [args.infisical_project_id, args.infisical_env, args.infisical_path]
+    if not all(is_nonempty(item) for item in required):
+        return ""
+
+    argv = [
+        args.infisical_binary,
+        "export",
+        "--format=json",
+        f"--projectId={args.infisical_project_id}",
+        f"--env={args.infisical_env}",
+        f"--path={args.infisical_path}",
+    ]
+    if is_nonempty(args.infisical_url):
+        argv.append(f"--domain={args.infisical_url}")
+
+    env = os.environ.copy()
+    env["INFISICAL_DISABLE_UPDATE_CHECK"] = "true"
+    raw = run_command(argv, env=env)
+    return normalize_infisical_json(raw, args.infisical_key)
+
+
+def write_inventory(path, content):
+    if not is_nonempty(content):
+        raise SystemExit("Resolved inventory is empty")
+    output = Path(path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(content.rstrip() + "\n", encoding="utf-8")
+    output.chmod(0o600)
+
+
+def main():
+    args = parse_args()
+    sources = [
+        ("github", lambda: inventory_from_env(args.github_secret_env)),
+        ("sops", lambda: inventory_from_sops(args.sops_file, args.sops_binary)),
+        ("infisical", lambda: inventory_from_infisical(args)),
+    ]
+
+    for source_name, loader in sources:
+        inventory = loader()
+        if is_nonempty(inventory):
+            write_inventory(args.output, inventory)
+            print(f"Resolved inventory from {source_name}.")
+            return 0
+
+    raise SystemExit(
+        "No inventory source resolved. Configure a GitHub environment secret, "
+        "a SOPS inventory file, or an Infisical inventory secret."
+    )
+
+
+if __name__ == "__main__":
+    sys.exit(main())
+

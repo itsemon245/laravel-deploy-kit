@@ -1,0 +1,11 @@
+# Placeholder PostgreSQL profile. Tune real values in a private inventory.
+listen_addresses = '*'
+max_connections = {{ postgres_max_connections | default(100) }}
+shared_buffers = '{{ postgres_shared_buffers | default("256MB") }}'
+effective_cache_size = '{{ postgres_effective_cache_size | default("768MB") }}'
+maintenance_work_mem = '{{ postgres_maintenance_work_mem | default("64MB") }}'
+checkpoint_completion_target = 0.9
+wal_buffers = '{{ postgres_wal_buffers | default("16MB") }}'
+default_statistics_target = 100
+random_page_cost = 1.1
+

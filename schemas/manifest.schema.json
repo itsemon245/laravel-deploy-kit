@@ -1,0 +1,160 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.com/laravel-deploy-kit/manifest.schema.json",
+  "title": "Laravel Deploy Kit Manifest",
+  "type": "object",
+  "required": ["schema_version", "app", "repo", "compose", "build", "health", "secrets"],
+  "additionalProperties": true,
+  "properties": {
+    "schema_version": { "const": 1 },
+    "app": {
+      "type": "object",
+      "required": ["name", "type", "app_dir", "env"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "type": { "const": "laravel" },
+        "app_dir": { "type": "string", "minLength": 1 },
+        "env": { "type": "string", "minLength": 1 }
+      }
+    },
+    "repo": {
+      "type": "object",
+      "required": ["git_ref", "remote"],
+      "properties": {
+        "git_ref": { "type": "string", "minLength": 1 },
+        "url": { "type": "string", "minLength": 1 },
+        "remote": { "type": "string", "minLength": 1 },
+        "clean": { "type": "boolean" }
+      }
+    },
+    "compose": {
+      "type": "object",
+      "required": ["project_name", "files", "build_service", "app_services"],
+      "properties": {
+        "project_name": { "type": "string", "minLength": 1 },
+        "files": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "build_service": { "type": "string", "minLength": 1 },
+        "app_services": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "one_time_services": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "queue_service": { "type": "string" },
+        "nginx_service": { "type": "string" }
+      }
+    },
+    "build": {
+      "type": "object",
+      "required": ["mode"],
+      "properties": {
+        "mode": { "enum": ["per_vm"] },
+        "preserve_cache": { "type": "boolean" },
+        "progress": { "enum": ["auto", "plain", "tty", "quiet"] }
+      }
+    },
+    "cleanup": {
+      "type": "object",
+      "properties": {
+        "policy": { "enum": ["disk_pressure_only", "never"] },
+        "min_free_kb": { "type": "integer", "minimum": 1 },
+        "prune_build_cache": { "type": "boolean" },
+        "scheduled_deep_cleanup": { "type": "boolean" }
+      }
+    },
+    "database": {
+      "type": "object",
+      "properties": {
+        "migrations": {
+          "type": "object",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "run_once": { "type": "boolean" },
+            "command": { "type": "string" }
+          }
+        }
+      }
+    },
+    "health": {
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type": { "enum": ["http", "command"] },
+        "url": { "type": "string" },
+        "command": { "type": "string" },
+        "retries": { "type": "integer", "minimum": 1 },
+        "delay": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "secrets": {
+      "type": "object",
+      "required": ["provider", "sources"],
+      "properties": {
+        "provider": { "enum": ["sops", "sops_age", "infisical", "infisical_cloud", "infisical_self_hosted"] },
+        "url": { "type": "string" },
+        "sources": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["name", "class"],
+            "properties": {
+              "name": { "type": "string", "minLength": 1 },
+              "class": { "enum": ["app", "deploy", "db", "redis", "monitoring"] },
+              "file": { "type": "string" },
+              "project_id": { "type": "string" },
+              "env_slug": { "type": "string" },
+              "path": { "type": "string" }
+            }
+          }
+        },
+        "merge": {
+          "type": "object",
+          "properties": {
+            "override_order": {
+              "type": "array",
+              "items": { "type": "string", "minLength": 1 },
+              "uniqueItems": true
+            },
+            "fail_on_duplicate_keys": { "type": "boolean" }
+          }
+        },
+        "render": {
+          "type": "object",
+          "properties": {
+            "app_env_file": {
+              "type": "object",
+              "properties": {
+                "enabled": { "type": "boolean" },
+                "target": { "type": "string" },
+                "mode": { "type": "string" },
+                "include_classes": {
+                  "type": "array",
+                  "items": { "enum": ["app", "deploy", "db", "redis", "monitoring"] }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "environments": {
+      "type": "object",
+      "description": "Optional map of environment-specific partial manifest overrides keyed by app_env.",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    }
+  }
+}

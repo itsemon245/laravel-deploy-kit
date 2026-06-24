@@ -1,0 +1,23 @@
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: https://loki.monitoring.invalid/loki/api/v1/push
+    basic_auth:
+      username: "{{ monitoring_loki_username }}"
+      password: "{{ monitoring_loki_password }}"
+
+scrape_configs:
+  - job_name: docker-containers
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: demo-laravel
+          host: "{{ inventory_hostname }}"
+          __path__: /var/lib/docker/containers/*/*.log
+

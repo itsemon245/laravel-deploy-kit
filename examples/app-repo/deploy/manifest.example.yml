@@ -1,0 +1,71 @@
+schema_version: 1
+
+app:
+  name: demo-laravel
+  type: laravel
+  app_dir: /srv/demo-laravel/current
+  env: "{{ app_env }}"
+
+repo:
+  git_ref: "{{ app_env }}"
+  remote: origin
+  clean: true
+
+compose:
+  project_name: demo_laravel
+  files:
+    - docker-compose.yml
+    - "{{ app_env }}.docker-compose.yml"
+  build_service: web
+  app_services:
+    - web
+    - queues
+    - scheduler
+  queue_service: queues
+
+build:
+  mode: per_vm
+  preserve_cache: true
+  progress: plain
+
+cleanup:
+  policy: disk_pressure_only
+  min_free_kb: 10485760
+  prune_build_cache: false
+
+health:
+  type: http
+  url: http://127.0.0.1:8080/health
+  retries: 6
+  delay: 5
+
+secrets:
+  provider: sops_age
+  sources:
+    - name: app_runtime
+      file: deploy/secrets/{{ app_env }}.app.sops.env
+      class: app
+  merge:
+    override_order:
+      - app_runtime
+  render:
+    app_env_file:
+      enabled: true
+      target: .env
+      mode: "0600"
+      include_classes:
+        - app
+
+environments:
+  staging:
+    compose:
+      one_time_services:
+        - postgres
+        - redis
+
+  production:
+    cleanup:
+      min_free_kb: 20971520
+    health:
+      retries: 10
+      delay: 6

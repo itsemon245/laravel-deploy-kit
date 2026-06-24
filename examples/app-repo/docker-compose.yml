@@ -1,0 +1,21 @@
+services:
+  web:
+    image: demo-laravel:local
+    build:
+      context: .
+    command: php artisan octane:start --host=0.0.0.0 --port=8080
+    env_file:
+      - .env
+
+  queues:
+    image: demo-laravel:local
+    command: php artisan horizon
+    env_file:
+      - .env
+
+  scheduler:
+    image: demo-laravel:local
+    command: php artisan schedule:work
+    env_file:
+      - .env
+

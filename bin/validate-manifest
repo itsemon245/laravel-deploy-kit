@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+MANIFEST_PATH="${1:-deploy/manifest.yml}"
+APP_ENV="${2:-staging}"
+CHECK_COMPOSE_FILES="${LDK_VALIDATE_COMPOSE_FILES:-true}"
+MANIFEST_ENV_PATH="${LDK_MANIFEST_ENV_PATH:-}"
+MANIFEST_ENV_OVERRIDE_PATH="${LDK_MANIFEST_ENV_OVERRIDE_PATH:-}"
+MANIFEST_AUTO_DISCOVER_ENV="${LDK_MANIFEST_AUTO_DISCOVER_ENV:-true}"
+
+if [[ "$MANIFEST_PATH" != /* ]]; then
+  MANIFEST_PATH="$(pwd)/$MANIFEST_PATH"
+fi
+
+if ! command -v ansible-playbook >/dev/null 2>&1; then
+  echo "ansible-playbook is required to validate manifests." >&2
+  exit 127
+fi
+
+export ANSIBLE_CONFIG="${ANSIBLE_CONFIG:-$ROOT_DIR/ansible/ansible.cfg}"
+export ANSIBLE_ROLES_PATH="${ANSIBLE_ROLES_PATH:-$ROOT_DIR/ansible/roles}"
+export ANSIBLE_FILTER_PLUGINS="${ANSIBLE_FILTER_PLUGINS:-$ROOT_DIR/ansible/filter_plugins}"
+
+exec ansible-playbook \
+  -i localhost, \
+  -c local \
+  "$ROOT_DIR/ansible/playbooks/validate-manifest.yml" \
+  -e "manifest_path=$MANIFEST_PATH" \
+  -e "app_env=$APP_ENV" \
+  -e "validate_compose_files_exist=$CHECK_COMPOSE_FILES" \
+  -e "manifest_env_path=$MANIFEST_ENV_PATH" \
+  -e "manifest_env_override_path=$MANIFEST_ENV_OVERRIDE_PATH" \
+  -e "manifest_auto_discover_env=$MANIFEST_AUTO_DISCOVER_ENV"

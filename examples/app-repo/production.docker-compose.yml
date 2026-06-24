@@ -1,0 +1,13 @@
+services:
+  web:
+    ports:
+      - "127.0.0.1:8080:8080"
+
+  ws:
+    image: demo-laravel:local
+    command: php artisan reverb:start --host=0.0.0.0 --port=8081
+    env_file:
+      - .env
+    ports:
+      - "127.0.0.1:8081:8081"
+
