@@ -52,6 +52,23 @@ class WorkflowContractTest(unittest.TestCase):
         self.assertIn("app", checkout_paths)
         self.assertIn("deploy-kit", checkout_paths)
 
+    def test_secret_consuming_workflows_bind_to_app_environment(self):
+        jobs_by_workflow = {
+            "laravel-vm-deploy.yml": "deploy",
+            "refresh-secrets.yml": "refresh",
+            "vm-bootstrap.yml": "bootstrap",
+            "provision-postgres.yml": "provision",
+            "provision-redis.yml": "provision",
+        }
+
+        for workflow_name, job_name in jobs_by_workflow.items():
+            with self.subTest(workflow=workflow_name):
+                workflow = load_workflow(workflow_name)
+                self.assertEqual(
+                    workflow["jobs"][job_name]["environment"],
+                    "${{ inputs.app_env }}",
+                )
+
     def test_no_workflow_placeholder_text_remains(self):
         for path in WORKFLOWS.glob("*.yml"):
             with self.subTest(workflow=path.name):

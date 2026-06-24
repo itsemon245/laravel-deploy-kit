@@ -65,6 +65,7 @@ permissions:
 jobs:
   bootstrap:
     runs-on: ubuntu-latest
+    environment: ${{ inputs.app_env }}
     env:
       APP_DIR: ${{ github.workspace }}/app
       KIT_DIR: ${{ github.workspace }}/deploy-kit
