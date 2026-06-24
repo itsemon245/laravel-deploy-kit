@@ -1,0 +1,62 @@
+schema_version: 1
+
+app:
+  name: ldk-integration
+  type: laravel
+  app_dir: /srv/ldk-integration/current
+  env: "{{ app_env }}"
+
+repo:
+  git_ref: "{{ app_env }}"
+  remote: origin
+  clean: true
+
+compose:
+  project_name: ldk_integration
+  files:
+    - docker-compose.yml
+    - "{{ app_env }}.docker-compose.yml"
+  build_service: web
+  app_services:
+    - web
+
+build:
+  mode: per_vm
+  preserve_cache: true
+  progress: plain
+
+cleanup:
+  policy: never
+
+database:
+  migrations:
+    enabled: false
+
+health:
+  type: command
+  command: docker compose --project-name ldk_integration -f docker-compose.yml -f staging.docker-compose.yml ps web
+  retries: 6
+  delay: 2
+
+secrets:
+  provider: sops_age
+  sources:
+    - name: app_runtime
+      file: secrets/staging.app.sops.env
+      class: app
+  merge:
+    override_order:
+      - app_runtime
+  render:
+    app_env_file:
+      enabled: true
+      target: .env
+      mode: "0600"
+      include_classes:
+        - app
+
+environments:
+  staging:
+    compose:
+      one_time_services:
+        - redis

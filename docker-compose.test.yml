@@ -1,0 +1,9 @@
+services:
+  kit-tests:
+    build:
+      context: .
+      dockerfile: tests/containers/Dockerfile
+    working_dir: /workspace
+    volumes:
+      - .:/workspace
+    command: make container-verify

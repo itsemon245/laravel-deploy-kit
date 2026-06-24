@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [ "${1:-}" != "--decrypt" ] || [ -z "${2:-}" ]; then
+  echo "fake-sops only supports: --decrypt <file>" >&2
+  exit 2
+fi
+
+cat "$2"

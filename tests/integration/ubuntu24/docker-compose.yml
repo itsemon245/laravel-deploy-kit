@@ -1,0 +1,19 @@
+services:
+  ubuntu-app:
+    build:
+      context: .
+      dockerfile: Dockerfile.target
+    hostname: ubuntu-app
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+
+  control:
+    build:
+      context: ../../..
+      dockerfile: tests/containers/Dockerfile
+    working_dir: /workspace
+    volumes:
+      - ../../..:/workspace
+    depends_on:
+      - ubuntu-app
+    command: tests/integration/ubuntu24/run.sh

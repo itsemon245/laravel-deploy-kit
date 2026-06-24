@@ -1,0 +1,88 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT_DIR"
+
+require_optional="${LDK_REQUIRE_OPTIONAL_TOOLS:-false}"
+VENV_BIN="$ROOT_DIR/.venv/bin"
+
+default_tool() {
+  local name="$1"
+  if [ -x "$VENV_BIN/$name" ]; then
+    printf '%s\n' "$VENV_BIN/$name"
+    return
+  fi
+
+  printf '%s\n' "$name"
+}
+
+YAMLLINT_CMD="${YAMLLINT:-$(default_tool yamllint)}"
+ANSIBLE_LINT_CMD="${ANSIBLE_LINT:-$(default_tool ansible-lint)}"
+ANSIBLE_PLAYBOOK_CMD="${ANSIBLE_PLAYBOOK:-$(default_tool ansible-playbook)}"
+ACTIONLINT_CMD="${ACTIONLINT:-$(default_tool actionlint)}"
+SHELLCHECK_CMD="${SHELLCHECK:-$(default_tool shellcheck)}"
+
+run_optional() {
+  local tool_name="$1"
+  local tool_cmd="$2"
+  shift 2
+
+  if command -v "$tool_cmd" >/dev/null 2>&1; then
+    "$tool_cmd" "$@"
+    return
+  fi
+
+  if [ "$require_optional" = "true" ]; then
+    echo "Required verification tool is missing: $tool_name" >&2
+    exit 127
+  fi
+
+  echo "Skipping optional check; $tool_name is not installed." >&2
+}
+
+echo "== Python unit/static tests =="
+python3 -m unittest discover -s tests
+
+echo "== Python compile checks =="
+python3 -m py_compile \
+  ansible/filter_plugins/ldk_secrets.py \
+  ansible/filter_plugins/ldk_manifest.py \
+  bin/render-dotenv \
+  bin/resolve-inventory \
+  bin/check-workflow-version
+
+echo "== Shell syntax checks =="
+bash -n bin/ldk bin/validate-manifest bin/verify
+
+echo "== YAML lint =="
+run_optional yamllint "$YAMLLINT_CMD" .
+
+echo "== Ansible lint =="
+run_optional ansible-lint "$ANSIBLE_LINT_CMD" ansible
+
+echo "== Ansible syntax =="
+if command -v "$ANSIBLE_PLAYBOOK_CMD" >/dev/null 2>&1; then
+  make ansible-syntax ANSIBLE_PLAYBOOK="$ANSIBLE_PLAYBOOK_CMD"
+elif [ "$require_optional" = "true" ]; then
+  echo "Required verification tool is missing: ansible-playbook" >&2
+  exit 127
+else
+  echo "Skipping optional check; ansible-playbook is not installed." >&2
+fi
+
+echo "== GitHub Actions workflow lint =="
+run_optional actionlint "$ACTIONLINT_CMD"
+
+echo "== Shell lint =="
+run_optional shellcheck "$SHELLCHECK_CMD" bin/ldk bin/validate-manifest bin/verify tests/integration/ubuntu24/run.sh
+
+echo "== Docker Compose config =="
+if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
+  make compose-config
+elif [ "$require_optional" = "true" ]; then
+  echo "Required verification tool is missing: docker compose" >&2
+  exit 127
+else
+  echo "Skipping optional check; docker compose is not installed." >&2
+fi

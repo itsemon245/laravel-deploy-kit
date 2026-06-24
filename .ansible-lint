@@ -1,0 +1,9 @@
+---
+profile: basic
+exclude_paths:
+  - .git
+  - tests
+
+skip_list:
+  - var-naming[no-role-prefix]
+  - yaml[line-length]
