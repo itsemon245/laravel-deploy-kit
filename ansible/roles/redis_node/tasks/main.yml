@@ -1,0 +1,84 @@
+---
+- name: Resolve Redis password
+  ansible.builtin.set_fact:
+    ldk_redis_effective_password: >-
+      {{
+        ldk_redis_password
+        | default(((resolved_secrets | default({})).redis | default({})).REDIS_PASSWORD | default('', true), true)
+      }}
+  no_log: true
+
+- name: Require Redis password
+  ansible.builtin.assert:
+    that:
+      - ldk_redis_effective_password | length > 0
+    fail_msg: "Set ldk_redis_password or provide resolved_secrets.redis.REDIS_PASSWORD."
+  no_log: true
+
+- name: Create Redis directories
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "{{ item.mode }}"
+  become: true
+  loop:
+    - path: "{{ ldk_redis_base_dir }}"
+      mode: "0755"
+    - path: "{{ ldk_redis_base_dir }}/data"
+      mode: "0700"
+    - path: "{{ ldk_redis_base_dir }}/conf"
+      mode: "0755"
+
+- name: Render Redis config
+  ansible.builtin.template:
+    src: redis.conf.j2
+    dest: "{{ ldk_redis_base_dir }}/conf/redis.conf"
+    mode: "0600"
+    owner: root
+    group: root
+  become: true
+  no_log: true
+
+- name: Render Redis Compose file
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: "{{ ldk_redis_base_dir }}/docker-compose.yml"
+    mode: "0644"
+    owner: root
+    group: root
+  become: true
+
+- name: Start Redis
+  ansible.builtin.command:
+    argv:
+      - docker
+      - compose
+      - up
+      - -d
+  args:
+    chdir: "{{ ldk_redis_base_dir }}"
+  become: true
+
+- name: Wait for Redis health
+  ansible.builtin.command:
+    argv:
+      - docker
+      - compose
+      - exec
+      - -T
+      - redis
+      - redis-cli
+      - -a
+      - "{{ ldk_redis_effective_password }}"
+      - ping
+  args:
+    chdir: "{{ ldk_redis_base_dir }}"
+  register: ldk_redis_health
+  until: "'PONG' in ldk_redis_health.stdout"
+  retries: 12
+  delay: 5
+  changed_when: false
+  become: true
+  no_log: true

@@ -1,0 +1,50 @@
+---
+- name: Initialize secret payload list
+  ansible.builtin.set_fact:
+    ldk_secret_source_payloads: "{{ ldk_secret_source_payloads | default([]) }}"
+  no_log: true
+
+- name: Decrypt SOPS secret sources on controller
+  ansible.builtin.command:
+    argv:
+      - "{{ ldk_sops_binary }}"
+      - --decrypt
+      - "{{ item.file if (item.file | regex_search('^/')) else ldk_manifest_dir ~ '/' ~ item.file }}"
+  delegate_to: localhost
+  loop: "{{ ldk_manifest.secrets.sources }}"
+  loop_control:
+    label: "{{ item.name }}"
+  register: ldk_sops_decrypted_sources
+  changed_when: false
+  no_log: true
+
+- name: Normalize SOPS source payloads
+  ansible.builtin.set_fact:
+    ldk_secret_source_payloads: >-
+      {{
+        ldk_secret_source_payloads + [
+          {
+            'name': item.item.name,
+            'class': item.item.class | default('app'),
+            'secrets': (
+              (item.stdout | ldk_parse_dotenv)
+              if ((item.item.file | string) | regex_search('[.]env$'))
+              else ((item.stdout | from_yaml) | ldk_normalize_class_payload(item.item.class | default('app')))
+            )
+          }
+        ]
+      }}
+  loop: "{{ ldk_sops_decrypted_sources.results }}"
+  loop_control:
+    label: "{{ item.item.name }}"
+  no_log: true
+
+- name: Validate SOPS payloads are dictionaries
+  ansible.builtin.assert:
+    that:
+      - item.secrets is mapping
+    fail_msg: "SOPS source {{ item.name }} must decrypt to key/value data."
+  loop: "{{ ldk_secret_source_payloads }}"
+  loop_control:
+    label: "{{ item.name }}"
+  no_log: true

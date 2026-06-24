@@ -1,0 +1,42 @@
+---
+- name: Read app filesystem free space
+  ansible.builtin.command:
+    argv:
+      - df
+      - -Pk
+      - "{{ ldk_app_dir }}"
+  register: ldk_df_output
+  changed_when: false
+
+- name: Normalize cleanup config
+  ansible.builtin.set_fact:
+    ldk_cleanup_config: "{{ ldk_manifest.cleanup | default({}) }}"
+
+- name: Calculate free space
+  ansible.builtin.set_fact:
+    ldk_free_kb: "{{ (ldk_df_output.stdout_lines[1].split()[3]) | int }}"
+    ldk_min_free_kb: "{{ ldk_cleanup_config.min_free_kb | default(ldk_cleanup_default_min_free_kb) | int }}"
+    ldk_cleanup_policy: "{{ ldk_cleanup_config.policy | default('disk_pressure_only') }}"
+
+- name: Apply disk-pressure cleanup without build cache prune
+  ansible.builtin.command:
+    argv: "{{ item }}"
+  loop:
+    - [docker, container, prune, --force]
+    - [docker, image, prune, --force]
+  when:
+    - ldk_cleanup_policy == 'disk_pressure_only'
+    - ldk_free_kb | int < ldk_min_free_kb | int
+    - not (ldk_cleanup_config.prune_build_cache | default(false) | bool)
+
+- name: Apply disk-pressure cleanup with build cache prune
+  ansible.builtin.command:
+    argv: "{{ item }}"
+  loop:
+    - [docker, container, prune, --force]
+    - [docker, image, prune, --force]
+    - [docker, builder, prune, --force]
+  when:
+    - ldk_cleanup_policy == 'disk_pressure_only'
+    - ldk_free_kb | int < ldk_min_free_kb | int
+    - ldk_cleanup_config.prune_build_cache | default(false) | bool

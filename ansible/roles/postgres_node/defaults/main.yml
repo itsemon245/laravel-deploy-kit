@@ -1,0 +1,12 @@
+---
+ldk_postgres_base_dir: /opt/ldk/postgres
+ldk_postgres_image: postgres:16-alpine
+ldk_postgres_database: app
+ldk_postgres_user: app
+ldk_postgres_password: ""
+ldk_postgres_port: "5432"
+ldk_postgres_shared_buffers: 256MB
+ldk_postgres_max_connections: 100
+ldk_postgres_wal_level: replica
+ldk_postgres_restart_policy: unless-stopped
+

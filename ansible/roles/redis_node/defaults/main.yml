@@ -1,0 +1,10 @@
+---
+ldk_redis_base_dir: /opt/ldk/redis
+ldk_redis_image: redis:7-alpine
+ldk_redis_password: ""
+ldk_redis_port: "6379"
+ldk_redis_maxmemory: 512mb
+ldk_redis_maxmemory_policy: allkeys-lru
+ldk_redis_appendonly: "yes"
+ldk_redis_restart_policy: unless-stopped
+

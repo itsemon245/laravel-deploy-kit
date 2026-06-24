@@ -1,0 +1,23 @@
+---
+- name: Require provider payloads
+  ansible.builtin.assert:
+    that:
+      - ldk_secret_source_payloads is defined
+      - ldk_secret_source_payloads is iterable
+      - ldk_secret_source_payloads | length == ldk_manifest.secrets.sources | length
+    fail_msg: "Secret provider must produce one payload per configured source."
+  no_log: true
+
+- name: Initialize resolved secrets
+  ansible.builtin.set_fact:
+    resolved_secrets: {}
+  no_log: true
+
+- name: Merge sources in configured override order
+  ansible.builtin.include_tasks: merge_one.yml
+  loop: "{{ ldk_secret_merge_order }}"
+  loop_control:
+    loop_var: ldk_secret_source_name
+    label: "{{ ldk_secret_source_name }}"
+  no_log: true
+

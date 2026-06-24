@@ -1,0 +1,7 @@
+---
+- name: Build Laravel Docker service on VM
+  ansible.builtin.command:
+    argv: "{{ ['docker', 'compose', '--project-name', ldk_manifest.compose.project_name] + ldk_compose_argv_files + ['build', '--progress', ldk_manifest.build.progress | default('plain'), ldk_manifest.compose.build_service] }}"
+  args:
+    chdir: "{{ ldk_app_dir }}"
+

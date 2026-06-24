@@ -1,0 +1,35 @@
+---
+- name: Normalize env render config
+  ansible.builtin.set_fact:
+    ldk_render_env_config: "{{ (ldk_manifest.secrets.render | default({})).app_env_file | default({}) }}"
+  no_log: true
+
+- name: Render app runtime env file
+  when: ldk_render_env_config.enabled | default(true) | bool
+  block:
+    - name: Select env secret classes
+      ansible.builtin.set_fact:
+        ldk_render_env_classes: "{{ ldk_render_env_config.include_classes | default(ldk_render_env_default_classes) }}"
+        ldk_render_env_target: "{{ ldk_render_env_config.target | default(ldk_render_env_default_target) }}"
+      no_log: true
+
+    - name: Build env destination path
+      ansible.builtin.set_fact:
+        ldk_render_env_destination: >-
+          {{
+            ldk_render_env_target
+            if (ldk_render_env_target | regex_search('^/'))
+            else ldk_app_dir ~ '/' ~ ldk_render_env_target
+          }}
+        ldk_render_env_values: "{{ resolved_secrets | ldk_select_secret_classes(ldk_render_env_classes) }}"
+      no_log: true
+
+    - name: Write env file without logging secret values
+      ansible.builtin.copy:
+        dest: "{{ ldk_render_env_destination }}"
+        content: "{{ ldk_render_env_values | ldk_render_dotenv }}"
+        mode: "{{ ldk_render_env_config.mode | default(ldk_render_env_default_mode) }}"
+        owner: "{{ ldk_render_env_config.owner | default(omit) }}"
+        group: "{{ ldk_render_env_config.group | default(omit) }}"
+      no_log: true
+

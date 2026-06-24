@@ -1,0 +1,19 @@
+---
+manifest_path: deploy/manifest.yml
+app_env: staging
+manifest_env_path: ""
+manifest_env_override_path: ""
+manifest_auto_discover_env: true
+validate_compose_files_exist: true
+ldk_allowed_secret_classes:
+  - app
+  - deploy
+  - db
+  - redis
+  - monitoring
+ldk_allowed_secret_providers:
+  - sops
+  - sops_age
+  - infisical
+  - infisical_cloud
+  - infisical_self_hosted

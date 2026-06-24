@@ -1,0 +1,96 @@
+---
+- name: Resolve PostgreSQL password
+  ansible.builtin.set_fact:
+    ldk_postgres_effective_password: >-
+      {{
+        ldk_postgres_password
+        | default(((resolved_secrets | default({})).db | default({})).POSTGRES_PASSWORD | default('', true), true)
+      }}
+  no_log: true
+
+- name: Require PostgreSQL password
+  ansible.builtin.assert:
+    that:
+      - ldk_postgres_effective_password | length > 0
+    fail_msg: "Set ldk_postgres_password or provide resolved_secrets.db.POSTGRES_PASSWORD."
+  no_log: true
+
+- name: Create PostgreSQL directories
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "{{ item.mode }}"
+  become: true
+  loop:
+    - path: "{{ ldk_postgres_base_dir }}"
+      mode: "0755"
+    - path: "{{ ldk_postgres_base_dir }}/data"
+      mode: "0700"
+    - path: "{{ ldk_postgres_base_dir }}/conf"
+      mode: "0755"
+
+- name: Render PostgreSQL environment file
+  ansible.builtin.copy:
+    dest: "{{ ldk_postgres_base_dir }}/.env"
+    mode: "0600"
+    owner: root
+    group: root
+    content: |
+      POSTGRES_DB={{ ldk_postgres_database }}
+      POSTGRES_USER={{ ldk_postgres_user }}
+      POSTGRES_PASSWORD={{ ldk_postgres_effective_password }}
+  become: true
+  no_log: true
+
+- name: Render PostgreSQL config
+  ansible.builtin.template:
+    src: postgresql.conf.j2
+    dest: "{{ ldk_postgres_base_dir }}/conf/postgresql.conf"
+    mode: "0644"
+    owner: root
+    group: root
+  become: true
+
+- name: Render PostgreSQL Compose file
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: "{{ ldk_postgres_base_dir }}/docker-compose.yml"
+    mode: "0644"
+    owner: root
+    group: root
+  become: true
+
+- name: Start PostgreSQL
+  ansible.builtin.command:
+    argv:
+      - docker
+      - compose
+      - up
+      - -d
+  args:
+    chdir: "{{ ldk_postgres_base_dir }}"
+  become: true
+
+- name: Wait for PostgreSQL health
+  ansible.builtin.command:
+    argv:
+      - docker
+      - compose
+      - exec
+      - -T
+      - postgres
+      - pg_isready
+      - -U
+      - "{{ ldk_postgres_user }}"
+      - -d
+      - "{{ ldk_postgres_database }}"
+  args:
+    chdir: "{{ ldk_postgres_base_dir }}"
+  register: ldk_postgres_health
+  until: ldk_postgres_health.rc == 0
+  retries: 12
+  delay: 5
+  changed_when: false
+  become: true

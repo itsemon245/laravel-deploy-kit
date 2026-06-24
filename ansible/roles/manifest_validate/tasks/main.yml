@@ -1,0 +1,236 @@
+---
+- name: Calculate manifest path candidates
+  ansible.builtin.set_fact:
+    ldk_manifest_input_dir: "{{ manifest_path | dirname }}"
+    ldk_manifest_input_name: "{{ manifest_path | basename }}"
+    ldk_manifest_input_ext: "{{ '.yaml' if (manifest_path | regex_search('\\.yaml$')) else '.yml' }}"
+    ldk_manifest_input_stem: "{{ (manifest_path | basename) | regex_replace('\\.ya?ml$', '') }}"
+
+- name: Build environment-specific manifest candidate lists
+  ansible.builtin.set_fact:
+    ldk_manifest_env_full_candidates: >-
+      {{
+        ([manifest_env_path] if manifest_env_path | length > 0 else [])
+        +
+        (
+          [
+            ldk_manifest_input_dir ~ '/' ~ ldk_manifest_input_stem ~ '.' ~ app_env ~ ldk_manifest_input_ext,
+            ldk_manifest_input_dir ~ '/' ~ app_env ~ '.' ~ ldk_manifest_input_stem ~ ldk_manifest_input_ext
+          ]
+          if manifest_auto_discover_env | bool else []
+        )
+      }}
+    ldk_manifest_env_override_candidates: >-
+      {{
+        ([manifest_env_override_path] if manifest_env_override_path | length > 0 else [])
+        +
+        (
+          [
+            ldk_manifest_input_dir ~ '/' ~ ldk_manifest_input_stem ~ '.' ~ app_env ~ '.override' ~ ldk_manifest_input_ext,
+            ldk_manifest_input_dir ~ '/' ~ app_env ~ '.' ~ ldk_manifest_input_stem ~ '.override' ~ ldk_manifest_input_ext
+          ]
+          if manifest_auto_discover_env | bool else []
+        )
+      }}
+
+- name: Check base manifest file exists
+  ansible.builtin.stat:
+    path: "{{ manifest_path }}"
+  delegate_to: localhost
+  register: ldk_manifest_stat
+
+- name: Check environment-specific full manifest candidates
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  delegate_to: localhost
+  loop: "{{ ldk_manifest_env_full_candidates }}"
+  register: ldk_manifest_env_full_stats
+
+- name: Check environment-specific override manifest candidates
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  delegate_to: localhost
+  loop: "{{ ldk_manifest_env_override_candidates }}"
+  register: ldk_manifest_env_override_stats
+
+- name: Select manifest source paths
+  ansible.builtin.set_fact:
+    ldk_manifest_env_full_path: "{{ (ldk_manifest_env_full_stats.results | selectattr('stat.exists', 'equalto', true) | map(attribute='item') | list | first) | default('') }}"
+    ldk_manifest_env_override_path: "{{ (ldk_manifest_env_override_stats.results | selectattr('stat.exists', 'equalto', true) | map(attribute='item') | list | first) | default('') }}"
+
+- name: Select effective manifest base path
+  ansible.builtin.set_fact:
+    ldk_manifest_effective_base_path: "{{ ldk_manifest_env_full_path if ldk_manifest_env_full_path | length > 0 else manifest_path }}"
+    ldk_manifest_uses_env_full: "{{ ldk_manifest_env_full_path | length > 0 }}"
+
+- name: Require manifest file
+  ansible.builtin.assert:
+    that:
+      - ldk_manifest_uses_env_full | bool or ldk_manifest_stat.stat.exists
+      - ldk_manifest_uses_env_full | bool or ldk_manifest_stat.stat.isreg
+    fail_msg: "Manifest file not found: {{ manifest_path }}"
+
+- name: Load selected manifest base with app_env templating
+  ansible.builtin.set_fact:
+    ldk_manifest_dir: "{{ ldk_manifest_effective_base_path | dirname }}"
+    ldk_manifest_base: "{{ lookup('ansible.builtin.template', ldk_manifest_effective_base_path) | from_yaml }}"
+    ldk_manifest_file_override: {}
+    ldk_manifest_source_paths:
+      base: "{{ ldk_manifest_effective_base_path }}"
+      env_full: "{{ ldk_manifest_env_full_path }}"
+      env_override: ""
+
+- name: Load environment-specific override manifest with app_env templating
+  ansible.builtin.set_fact:
+    ldk_manifest_file_override: "{{ lookup('ansible.builtin.template', ldk_manifest_env_override_path) | from_yaml }}"
+    ldk_manifest_source_paths:
+      base: "{{ ldk_manifest_effective_base_path }}"
+      env_full: "{{ ldk_manifest_env_full_path }}"
+      env_override: "{{ ldk_manifest_env_override_path }}"
+  when:
+    - not ldk_manifest_uses_env_full | bool
+    - ldk_manifest_env_override_path | length > 0
+
+- name: Apply inline and file environment overrides
+  ansible.builtin.set_fact:
+    ldk_manifest: "{{ ldk_manifest_base | ldk_apply_manifest_environment(app_env, ldk_manifest_file_override) }}"
+
+- name: Validate top-level manifest keys
+  ansible.builtin.assert:
+    that:
+      - ldk_manifest is mapping
+      - ldk_manifest.schema_version is defined
+      - ldk_manifest.schema_version | int == 1
+      - ldk_manifest.app is defined
+      - ldk_manifest.repo is defined
+      - ldk_manifest.compose is defined
+      - ldk_manifest.build is defined
+      - ldk_manifest.health is defined
+      - ldk_manifest.secrets is defined
+    fail_msg: "Manifest must define schema_version 1 and app, repo, compose, build, health, and secrets sections."
+
+- name: Validate app section
+  ansible.builtin.assert:
+    that:
+      - ldk_manifest.app.name is defined
+      - ldk_manifest.app.name | length > 0
+      - ldk_manifest.app.type == 'laravel'
+      - ldk_manifest.app.app_dir is defined
+      - ldk_manifest.app.app_dir | length > 0
+      - ldk_manifest.app.env is defined
+      - ldk_manifest.app.env | length > 0
+    fail_msg: "app must define name, type=laravel, app_dir, and env."
+
+- name: Validate repo section
+  ansible.builtin.assert:
+    that:
+      - ldk_manifest.repo.git_ref is defined
+      - ldk_manifest.repo.git_ref | length > 0
+      - ldk_manifest.repo.remote is defined
+      - ldk_manifest.repo.remote | length > 0
+      - ldk_manifest.repo.clean | default(false) is boolean
+    fail_msg: "repo must define git_ref, remote, and optional boolean clean."
+
+- name: Validate compose section
+  ansible.builtin.assert:
+    that:
+      - ldk_manifest.compose.project_name is defined
+      - ldk_manifest.compose.project_name | length > 0
+      - ldk_manifest.compose.files is iterable
+      - ldk_manifest.compose.files is not string
+      - ldk_manifest.compose.files | length > 0
+      - ldk_manifest.compose.files | unique | list | length == ldk_manifest.compose.files | length
+      - ldk_manifest.compose.build_service is defined
+      - ldk_manifest.compose.build_service | length > 0
+      - ldk_manifest.compose.app_services is iterable
+      - ldk_manifest.compose.app_services is not string
+      - ldk_manifest.compose.app_services | length > 0
+      - ldk_manifest.compose.app_services | unique | list | length == ldk_manifest.compose.app_services | length
+      - ldk_manifest.compose.one_time_services is not defined or ldk_manifest.compose.one_time_services is iterable
+      - ldk_manifest.compose.one_time_services is not defined or ldk_manifest.compose.one_time_services is not string
+      - ldk_manifest.compose.one_time_services is not defined or ldk_manifest.compose.one_time_services | unique | list | length == ldk_manifest.compose.one_time_services | length
+      - ldk_manifest.compose.one_time_services is not defined or ldk_manifest.compose.app_services | intersect(ldk_manifest.compose.one_time_services) | length == 0
+    fail_msg: "compose must define project_name, unique files, build_service, unique app_services, and non-overlapping one_time_services."
+
+- name: Validate local compose files exist
+  when: validate_compose_files_exist | bool
+  block:
+    - name: Check compose file paths
+      ansible.builtin.stat:
+        path: "{{ item if (item | regex_search('^/')) else ldk_manifest_dir ~ '/' ~ item }}"
+      delegate_to: localhost
+      loop: "{{ ldk_manifest.compose.files }}"
+      register: ldk_compose_file_stats
+
+    - name: Require compose files to exist
+      ansible.builtin.assert:
+        that:
+          - ldk_compose_file_stats.results | selectattr('stat.exists', 'equalto', false) | list | length == 0
+        fail_msg: "Every compose.files entry must exist relative to {{ ldk_manifest_dir }}."
+
+- name: Validate build and cleanup sections
+  ansible.builtin.assert:
+    that:
+      - ldk_manifest.build.mode is defined
+      - ldk_manifest.build.mode == 'per_vm'
+      - ldk_manifest.cleanup is not defined or ldk_manifest.cleanup.policy | default('disk_pressure_only') in ['disk_pressure_only', 'never']
+      - ldk_manifest.cleanup is not defined or ldk_manifest.cleanup.prune_build_cache | default(false) is boolean
+      - ldk_manifest.cleanup is not defined or ldk_manifest.cleanup.scheduled_deep_cleanup | default(false) is boolean
+    fail_msg: "Only build.mode=per_vm and cleanup.policy=disk_pressure_only|never are supported in Phases 1-4."
+
+- name: Validate health section
+  ansible.builtin.assert:
+    that:
+      - ldk_manifest.health.type in ['http', 'command']
+      - ldk_manifest.health.type != 'http' or (ldk_manifest.health.url is defined and ldk_manifest.health.url | length > 0)
+      - ldk_manifest.health.type != 'command' or (ldk_manifest.health.command is defined and ldk_manifest.health.command | length > 0)
+      - ldk_manifest.health.retries | default(6) | int >= 1
+      - ldk_manifest.health.delay | default(5) | int >= 0
+    fail_msg: "health must be type=http with url or type=command with command."
+
+- name: Validate secrets section
+  ansible.builtin.assert:
+    that:
+      - ldk_manifest.secrets.provider in ldk_allowed_secret_providers
+      - ldk_manifest.secrets.sources is iterable
+      - ldk_manifest.secrets.sources is not string
+      - ldk_manifest.secrets.sources | length > 0
+    fail_msg: "secrets must define a supported provider and at least one source."
+
+- name: Validate each secret source
+  ansible.builtin.assert:
+    that:
+      - item.name is defined
+      - item.name | length > 0
+      - item.class is defined
+      - item.class in ldk_allowed_secret_classes
+      - ldk_manifest.secrets.provider not in ['sops', 'sops_age'] or (item.file is defined and item.file | length > 0)
+      - ldk_manifest.secrets.provider in ['sops', 'sops_age'] or (item.project_id is defined and item.project_id | length > 0)
+      - ldk_manifest.secrets.provider in ['sops', 'sops_age'] or (item.env_slug is defined and item.env_slug | length > 0)
+      - ldk_manifest.secrets.provider in ['sops', 'sops_age'] or (item.path is defined and item.path | length > 0)
+    fail_msg: "Each secret source must have name, class, and provider-specific fields."
+  loop: "{{ ldk_manifest.secrets.sources }}"
+  loop_control:
+    label: "{{ item.name | default('unnamed') }}"
+
+- name: Build manifest helper facts
+  ansible.builtin.set_fact:
+    ldk_secret_source_names: "{{ ldk_manifest.secrets.sources | map(attribute='name') | list }}"
+    ldk_secret_merge_order: "{{ (ldk_manifest.secrets.merge | default({})).override_order | default(ldk_manifest.secrets.sources | map(attribute='name') | list, true) }}"
+    ldk_app_dir: "{{ ldk_manifest.app.app_dir }}"
+    ldk_compose_argv_files: []
+    ldk_compose_one_time_services: "{{ ldk_manifest.compose.one_time_services | default([]) }}"
+
+- name: Validate secret source names and merge order
+  ansible.builtin.assert:
+    that:
+      - ldk_secret_source_names | unique | list | length == ldk_secret_source_names | length
+      - ldk_secret_merge_order | unique | list | length == ldk_secret_merge_order | length
+      - ldk_secret_source_names | difference(ldk_secret_merge_order) | length == 0
+      - ldk_secret_merge_order | difference(ldk_secret_source_names) | length == 0
+    fail_msg: "Secret source names must be unique, and merge.override_order must contain exactly those names."
+
+- name: Build docker compose argv file flags
+  ansible.builtin.set_fact:
+    ldk_compose_argv_files: "{{ ldk_compose_argv_files + ['-f', item] }}"
+  loop: "{{ ldk_manifest.compose.files }}"

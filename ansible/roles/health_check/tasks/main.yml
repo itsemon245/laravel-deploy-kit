@@ -1,0 +1,23 @@
+---
+- name: Run HTTP health check
+  ansible.builtin.uri:
+    url: "{{ ldk_manifest.health.url }}"
+    method: GET
+    status_code: "{{ ldk_manifest.health.status_code | default(200) }}"
+    return_content: false
+  register: ldk_http_health
+  until: ldk_http_health is succeeded
+  retries: "{{ ldk_manifest.health.retries | default(6) }}"
+  delay: "{{ ldk_manifest.health.delay | default(5) }}"
+  when: ldk_manifest.health.type == 'http'
+
+- name: Run command health check
+  ansible.builtin.shell: "{{ ldk_manifest.health.command }}" # noqa command-instead-of-shell
+  args:
+    chdir: "{{ ldk_app_dir }}"
+  register: ldk_command_health
+  until: ldk_command_health.rc == 0
+  retries: "{{ ldk_manifest.health.retries | default(6) }}"
+  delay: "{{ ldk_manifest.health.delay | default(5) }}"
+  changed_when: false
+  when: ldk_manifest.health.type == 'command'

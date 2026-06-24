@@ -1,0 +1,9 @@
+services:
+  promtail:
+    image: {{ ldk_promtail_image }}
+    restart: {{ ldk_monitoring_restart_policy }}
+    command: -config.file=/etc/promtail/config.yml
+    volumes:
+      - ./promtail-config.yml:/etc/promtail/config.yml:ro
+      - /var/log:/var/log:ro
+

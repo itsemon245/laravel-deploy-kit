@@ -1,0 +1,13 @@
+services:
+  redis:
+    image: {{ ldk_redis_image }}
+    restart: {{ ldk_redis_restart_policy }}
+    ports:
+      - "127.0.0.1:{{ ldk_redis_port }}:6379"
+    command:
+      - redis-server
+      - /usr/local/etc/redis/redis.conf
+    volumes:
+      - ./data:/data
+      - ./conf/redis.conf:/usr/local/etc/redis/redis.conf:ro
+

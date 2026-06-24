@@ -1,0 +1,10 @@
+listen_addresses = '*'
+port = 5432
+max_connections = {{ ldk_postgres_max_connections }}
+shared_buffers = '{{ ldk_postgres_shared_buffers }}'
+wal_level = '{{ ldk_postgres_wal_level }}'
+log_destination = 'stderr'
+logging_collector = off
+log_min_duration_statement = 1000
+autovacuum = on
+

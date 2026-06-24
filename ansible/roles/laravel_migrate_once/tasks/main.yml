@@ -1,0 +1,17 @@
+---
+- name: Normalize migration config
+  ansible.builtin.set_fact:
+    ldk_migration_config: "{{ (ldk_manifest.database | default({})).migrations | default({}) }}"
+
+- name: Run Laravel migrations once
+  ansible.builtin.shell: >
+    docker compose --project-name {{ ldk_manifest.compose.project_name | quote }}
+    {% for compose_file in ldk_manifest.compose.files %}
+    -f {{ compose_file | quote }}
+    {% endfor %}
+    exec -T {{ ldk_manifest.compose.build_service | quote }}
+    {{ ldk_migration_config.command | default('php artisan migrate --force') }}
+  args:
+    chdir: "{{ ldk_app_dir }}"
+  run_once: "{{ ldk_migration_config.run_once | default(true) | bool }}"
+  when: ldk_migration_config.enabled | default(true) | bool

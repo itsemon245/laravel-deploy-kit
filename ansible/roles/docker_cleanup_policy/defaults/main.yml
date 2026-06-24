@@ -1,0 +1,3 @@
+---
+ldk_cleanup_default_min_free_kb: 10485760
+

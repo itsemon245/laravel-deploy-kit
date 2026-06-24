@@ -1,0 +1,15 @@
+---
+ldk_deploy_user: deploy
+ldk_deploy_group: deploy
+ldk_create_deploy_user: true
+ldk_ssh_authorized_keys: []
+ldk_common_packages:
+  - ca-certificates
+  - curl
+  - git
+  - gnupg
+  - python3
+ldk_timezone: ""
+ldk_enforce_supported_os: true
+ldk_supported_distribution: Ubuntu
+ldk_min_supported_distribution_version: "24.04"

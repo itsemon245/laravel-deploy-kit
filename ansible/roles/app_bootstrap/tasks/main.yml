@@ -1,0 +1,84 @@
+---
+- name: Resolve bootstrap repository URL
+  ansible.builtin.set_fact:
+    ldk_effective_repo_url: >-
+      {{
+        ldk_app_bootstrap_repo_url
+        | default(app_repo_url | default(ldk_manifest.repo.url | default(''), true), true)
+      }}
+
+- name: Require repository URL for app bootstrap
+  ansible.builtin.assert:
+    that:
+      - not ldk_app_bootstrap_require_repo_url | bool or ldk_effective_repo_url | length > 0
+    fail_msg: "Set app_repo_url, ldk_app_bootstrap_repo_url, or repo.url in the manifest for app host bootstrap."
+
+- name: Ensure app directory parent exists
+  ansible.builtin.file:
+    path: "{{ ldk_app_dir | dirname }}"
+    state: directory
+    owner: "{{ ldk_deploy_user }}"
+    group: "{{ ldk_deploy_group }}"
+    mode: "0755"
+  become: true
+
+- name: Check app checkout state
+  ansible.builtin.stat:
+    path: "{{ ldk_app_dir }}/.git"
+  register: ldk_app_bootstrap_git_dir
+
+- name: Clone app repository
+  ansible.builtin.git:
+    repo: "{{ ldk_effective_repo_url }}"
+    dest: "{{ ldk_app_dir }}"
+    version: "{{ ldk_app_bootstrap_version | default(ldk_manifest.repo.git_ref, true) }}"
+    update: false
+    accept_hostkey: true
+  become: true
+  become_user: "{{ ldk_deploy_user }}"
+  when:
+    - ldk_effective_repo_url | length > 0
+    - not ldk_app_bootstrap_git_dir.stat.exists
+
+- name: Ensure app directory ownership
+  ansible.builtin.file:
+    path: "{{ ldk_app_dir }}"
+    state: directory
+    owner: "{{ ldk_deploy_user }}"
+    group: "{{ ldk_deploy_group }}"
+    recurse: true
+  become: true
+
+- name: Check configured git remote
+  ansible.builtin.command:
+    argv:
+      - git
+      - remote
+      - get-url
+      - "{{ ldk_manifest.repo.remote }}"
+  args:
+    chdir: "{{ ldk_app_dir }}"
+  register: ldk_app_bootstrap_remote
+  changed_when: false
+  failed_when: false
+  become: true
+  become_user: "{{ ldk_deploy_user }}"
+  when: ldk_effective_repo_url | length > 0
+
+- name: Configure git remote URL
+  ansible.builtin.command:
+    argv:
+      - git
+      - remote
+      - set-url
+      - "{{ ldk_manifest.repo.remote }}"
+      - "{{ ldk_effective_repo_url }}"
+  args:
+    chdir: "{{ ldk_app_dir }}"
+  become: true
+  become_user: "{{ ldk_deploy_user }}"
+  when:
+    - ldk_effective_repo_url | length > 0
+    - ldk_app_bootstrap_remote.rc == 0
+    - ldk_app_bootstrap_remote.stdout != ldk_effective_repo_url
+

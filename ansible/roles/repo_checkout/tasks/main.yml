@@ -1,0 +1,85 @@
+---
+- name: Ensure app directory exists
+  ansible.builtin.file:
+    path: "{{ ldk_app_dir }}"
+    state: directory
+    mode: "0755"
+
+- name: Check existing git checkout
+  ansible.builtin.stat:
+    path: "{{ ldk_app_dir }}/.git"
+  register: ldk_git_dir
+
+- name: Require pre-bootstrapped git checkout
+  ansible.builtin.assert:
+    that:
+      - ldk_git_dir.stat.exists
+      - ldk_git_dir.stat.isdir
+    fail_msg: "Expected {{ ldk_app_dir }} to contain an existing git checkout. Initial clone belongs to the bootstrap phase."
+
+- name: Read configured safe directories
+  ansible.builtin.command:
+    argv:
+      - git
+      - config
+      - --global
+      - --get-all
+      - safe.directory
+  register: ldk_safe_directories
+  changed_when: false
+  failed_when: false
+
+- name: Mark app checkout as safe for git
+  ansible.builtin.command:
+    argv:
+      - git
+      - config
+      - --global
+      - --add
+      - safe.directory
+      - "{{ ldk_app_dir }}"
+  when: ldk_app_dir not in ldk_safe_directories.stdout_lines
+
+- name: Fetch requested git ref
+  ansible.builtin.command:
+    argv:
+      - git
+      - fetch
+      - --prune
+      - "{{ ldk_manifest.repo.remote }}"
+      - "{{ ldk_manifest.repo.git_ref }}"
+  args:
+    chdir: "{{ ldk_app_dir }}"
+
+- name: Checkout requested git ref
+  ansible.builtin.command:
+    argv:
+      - git
+      - checkout
+      - "{{ ldk_manifest.repo.git_ref }}"
+  args:
+    chdir: "{{ ldk_app_dir }}"
+
+- name: Reset clean checkout to remote ref
+  ansible.builtin.command:
+    argv:
+      - git
+      - reset
+      - --hard
+      - "{{ ldk_manifest.repo.remote }}/{{ ldk_manifest.repo.git_ref }}"
+  args:
+    chdir: "{{ ldk_app_dir }}"
+  when: ldk_manifest.repo.clean | default(ldk_git_clean_default) | bool
+
+- name: Fast-forward non-clean checkout
+  ansible.builtin.command:
+    argv:
+      - git
+      - pull
+      - --ff-only
+      - "{{ ldk_manifest.repo.remote }}"
+      - "{{ ldk_manifest.repo.git_ref }}"
+  args:
+    chdir: "{{ ldk_app_dir }}"
+  when: not (ldk_manifest.repo.clean | default(ldk_git_clean_default) | bool)
+

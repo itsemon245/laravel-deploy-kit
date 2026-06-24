@@ -1,0 +1,39 @@
+---
+- name: Create monitoring directory
+  ansible.builtin.file:
+    path: "{{ ldk_monitoring_base_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  become: true
+
+- name: Render Promtail config
+  ansible.builtin.template:
+    src: promtail-config.yml.j2
+    dest: "{{ ldk_monitoring_base_dir }}/promtail-config.yml"
+    mode: "0644"
+    owner: root
+    group: root
+  become: true
+
+- name: Render monitoring Compose file
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: "{{ ldk_monitoring_base_dir }}/docker-compose.yml"
+    mode: "0644"
+    owner: root
+    group: root
+  become: true
+
+- name: Start monitoring services
+  ansible.builtin.command:
+    argv:
+      - docker
+      - compose
+      - up
+      - -d
+  args:
+    chdir: "{{ ldk_monitoring_base_dir }}"
+  become: true
+

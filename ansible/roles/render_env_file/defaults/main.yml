@@ -1,0 +1,6 @@
+---
+ldk_render_env_default_target: .env
+ldk_render_env_default_mode: "0600"
+ldk_render_env_default_classes:
+  - app
+

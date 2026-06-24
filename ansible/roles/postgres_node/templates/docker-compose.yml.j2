@@ -1,0 +1,16 @@
+services:
+  postgres:
+    image: {{ ldk_postgres_image }}
+    restart: {{ ldk_postgres_restart_policy }}
+    env_file:
+      - .env
+    ports:
+      - "127.0.0.1:{{ ldk_postgres_port }}:5432"
+    command:
+      - postgres
+      - -c
+      - config_file=/etc/postgresql/postgresql.conf
+    volumes:
+      - ./data:/var/lib/postgresql/data
+      - ./conf/postgresql.conf:/etc/postgresql/postgresql.conf:ro
+

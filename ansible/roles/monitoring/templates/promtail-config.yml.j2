@@ -1,0 +1,19 @@
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: {{ ldk_promtail_loki_url }}
+
+scrape_configs:
+  - job_name: {{ ldk_promtail_job_name }}
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: {{ ldk_promtail_job_name }}
+          __path__: {{ ldk_promtail_log_path }}
+

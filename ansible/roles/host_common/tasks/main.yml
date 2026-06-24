@@ -1,0 +1,82 @@
+---
+- name: Validate supported operating system
+  ansible.builtin.assert:
+    that:
+      - ansible_distribution == ldk_supported_distribution
+      - ansible_distribution_version is version(ldk_min_supported_distribution_version, '>=')
+    fail_msg: "This kit is currently tested for {{ ldk_supported_distribution }} {{ ldk_min_supported_distribution_version }} LTS or newer."
+  when: ldk_enforce_supported_os | bool
+
+- name: Install common packages on Debian hosts
+  ansible.builtin.apt:
+    name: "{{ ldk_common_packages }}"
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+  become: true
+  when: ansible_os_family == 'Debian'
+
+- name: Create deploy group
+  ansible.builtin.group:
+    name: "{{ ldk_deploy_group }}"
+    state: present
+  become: true
+  when: ldk_create_deploy_user | bool
+
+- name: Create deploy user
+  ansible.builtin.user:
+    name: "{{ ldk_deploy_user }}"
+    group: "{{ ldk_deploy_group }}"
+    shell: /bin/bash
+    create_home: true
+    state: present
+  become: true
+  when: ldk_create_deploy_user | bool
+
+- name: Create deploy SSH directory
+  ansible.builtin.file:
+    path: "/home/{{ ldk_deploy_user }}/.ssh"
+    state: directory
+    owner: "{{ ldk_deploy_user }}"
+    group: "{{ ldk_deploy_group }}"
+    mode: "0700"
+  become: true
+  when: ldk_create_deploy_user | bool
+
+- name: Ensure deploy authorized_keys file exists
+  ansible.builtin.file:
+    path: "/home/{{ ldk_deploy_user }}/.ssh/authorized_keys"
+    state: touch
+    owner: "{{ ldk_deploy_user }}"
+    group: "{{ ldk_deploy_group }}"
+    mode: "0600"
+  become: true
+  when:
+    - ldk_create_deploy_user | bool
+    - ldk_ssh_authorized_keys | length > 0
+
+- name: Install deploy authorized keys
+  ansible.builtin.lineinfile:
+    path: "/home/{{ ldk_deploy_user }}/.ssh/authorized_keys"
+    line: "{{ item }}"
+    state: present
+    create: true
+    owner: "{{ ldk_deploy_user }}"
+    group: "{{ ldk_deploy_group }}"
+    mode: "0600"
+  become: true
+  loop: "{{ ldk_ssh_authorized_keys }}"
+  no_log: true
+  when:
+    - ldk_create_deploy_user | bool
+    - ldk_ssh_authorized_keys | length > 0
+
+- name: Configure timezone when requested
+  ansible.builtin.command:
+    argv:
+      - timedatectl
+      - set-timezone
+      - "{{ ldk_timezone }}"
+  changed_when: true
+  become: true
+  when: ldk_timezone | length > 0

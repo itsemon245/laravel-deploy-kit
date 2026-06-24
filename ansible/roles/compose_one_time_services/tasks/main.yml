@@ -1,0 +1,23 @@
+---
+- name: Check one-time Compose service containers
+  ansible.builtin.command:
+    argv: "{{ ['docker', 'compose', '--project-name', ldk_manifest.compose.project_name] + ldk_compose_argv_files + ['ps', '--all', '-q', item] }}"
+  args:
+    chdir: "{{ ldk_app_dir }}"
+  loop: "{{ ldk_compose_one_time_services }}"
+  register: ldk_one_time_service_containers
+  changed_when: false
+  failed_when: false
+  when: ldk_compose_one_time_services | length > 0
+
+- name: Create missing one-time Compose services
+  ansible.builtin.command:
+    argv: "{{ ['docker', 'compose', '--project-name', ldk_manifest.compose.project_name] + ldk_compose_argv_files + ['up', '-d', '--no-recreate', item.item] }}"
+  args:
+    chdir: "{{ ldk_app_dir }}"
+  loop: "{{ ldk_one_time_service_containers.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item }}"
+  when:
+    - ldk_compose_one_time_services | length > 0
+    - item.stdout | default('') | length == 0

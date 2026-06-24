@@ -1,0 +1,37 @@
+---
+- name: Check Docker daemon
+  ansible.builtin.command:
+    argv:
+      - docker
+      - version
+      - --format
+      - "{{ '{{' }}.Server.Version{{ '}}' }}"
+  changed_when: false
+
+- name: Check Docker Compose plugin
+  ansible.builtin.command:
+    argv:
+      - docker
+      - compose
+      - version
+  changed_when: false
+
+- name: Check remote compose files
+  ansible.builtin.stat:
+    path: "{{ ldk_app_dir }}/{{ item }}"
+  loop: "{{ ldk_manifest.compose.files }}"
+  register: ldk_remote_compose_files
+
+- name: Require remote compose files
+  ansible.builtin.assert:
+    that:
+      - ldk_remote_compose_files.results | selectattr('stat.exists', 'equalto', false) | list | length == 0
+    fail_msg: "Every compose file must exist in {{ ldk_app_dir }} after checkout."
+
+- name: Validate Docker Compose config
+  ansible.builtin.command:
+    argv: "{{ ['docker', 'compose', '--project-name', ldk_manifest.compose.project_name] + ldk_compose_argv_files + ['config', '--quiet'] }}"
+  args:
+    chdir: "{{ ldk_app_dir }}"
+  changed_when: false
+

@@ -1,0 +1,6 @@
+---
+ldk_docker_packages:
+  - docker.io
+  - docker-compose-v2
+ldk_docker_service_name: docker
+ldk_add_deploy_user_to_docker_group: true

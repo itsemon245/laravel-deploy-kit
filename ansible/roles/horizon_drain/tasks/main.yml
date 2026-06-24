@@ -1,0 +1,26 @@
+---
+- name: Terminate Horizon workers before rollout
+  ansible.builtin.command:
+    argv: "{{ ['docker', 'compose', '--project-name', ldk_manifest.compose.project_name] + ldk_compose_argv_files + ['exec', '-T', ldk_manifest.compose.queue_service, 'php', 'artisan', 'horizon:terminate'] }}"
+  args:
+    chdir: "{{ ldk_app_dir }}"
+  register: ldk_horizon_terminate
+  changed_when: ldk_horizon_terminate.rc == 0
+  failed_when: false
+  when:
+    - ldk_horizon_drain_enabled | bool
+    - ldk_manifest.compose.queue_service is defined
+    - ldk_manifest.compose.queue_service | length > 0
+
+- name: Restart Laravel queue workers as fallback
+  ansible.builtin.command:
+    argv: "{{ ['docker', 'compose', '--project-name', ldk_manifest.compose.project_name] + ldk_compose_argv_files + ['exec', '-T', ldk_manifest.compose.queue_service, 'php', 'artisan', 'queue:restart'] }}"
+  args:
+    chdir: "{{ ldk_app_dir }}"
+  changed_when: true
+  failed_when: false
+  when:
+    - ldk_horizon_drain_enabled | bool
+    - ldk_manifest.compose.queue_service is defined
+    - ldk_manifest.compose.queue_service | length > 0
+

@@ -1,0 +1,37 @@
+---
+- name: Select source payload
+  ansible.builtin.set_fact:
+    ldk_secret_payload: "{{ (ldk_secret_source_payloads | selectattr('name', 'equalto', ldk_secret_source_name) | list | first) }}"
+  no_log: true
+
+- name: Calculate duplicate keys
+  ansible.builtin.set_fact:
+    ldk_duplicate_secret_keys: >-
+      {{
+        (resolved_secrets[ldk_secret_payload.class] | default({})).keys()
+        | intersect(ldk_secret_payload.secrets.keys())
+        | list
+      }}
+  no_log: true
+
+- name: Stop on duplicate secret keys when configured
+  ansible.builtin.fail:
+    msg: "Secret source {{ ldk_secret_payload.name }} would override existing keys: {{ ldk_duplicate_secret_keys | join(', ') }}"
+  when:
+    - (ldk_manifest.secrets.merge | default({})).fail_on_duplicate_keys | default(ldk_secret_fail_on_duplicate_keys) | bool
+    - ldk_duplicate_secret_keys | length > 0
+
+- name: Merge secret payload
+  ansible.builtin.set_fact:
+    resolved_secrets: >-
+      {{
+        resolved_secrets | combine(
+          {
+            ldk_secret_payload.class:
+              (resolved_secrets[ldk_secret_payload.class] | default({}))
+              | combine(ldk_secret_payload.secrets, recursive=False)
+          },
+          recursive=True
+        )
+      }}
+  no_log: true

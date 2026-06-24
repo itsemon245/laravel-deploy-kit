@@ -1,0 +1,14 @@
+---
+- name: Recreate Laravel services
+  ansible.builtin.command:
+    argv: "{{ ['docker', 'compose', '--project-name', ldk_manifest.compose.project_name] + ldk_compose_argv_files + ['up', '-d', '--remove-orphans'] + ldk_manifest.compose.app_services }}"
+  args:
+    chdir: "{{ ldk_app_dir }}"
+
+- name: Print non-secret Compose service state
+  ansible.builtin.command:
+    argv: "{{ ['docker', 'compose', '--project-name', ldk_manifest.compose.project_name] + ldk_compose_argv_files + ['ps'] }}"
+  args:
+    chdir: "{{ ldk_app_dir }}"
+  changed_when: false
+
