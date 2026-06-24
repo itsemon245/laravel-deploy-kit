@@ -5,6 +5,7 @@
 We maintain multiple production Laravel applications with a similar deployment shape:
 
 - Laravel app code is deployed to Linux VMs.
+- Sys-admin-provided VMs are expected to run Ubuntu 24.04 LTS, including point releases such as 24.04.4.
 - VMs are already placed behind upstream load balancers by the sys-admin team.
 - Staging usually runs on one VM with app, database, and Redis together.
 - Production usually starts with multiple backend/app VMs, one DB VM, and one Redis VM on the same private LAN.
@@ -50,7 +51,7 @@ Build a **public generic deploy kit** with:
 - Ansible playbooks and roles,
 - VM bootstrap roles,
 - Laravel Docker Compose deployment roles,
-- DB/Redis provisioning roles,
+- separate one-time DB/Redis provisioning roles,
 - monitoring templates,
 - secrets-provider adapters,
 - documentation and examples.
@@ -92,6 +93,7 @@ Decision:
 - Use a **public `itsemon245/laravel-deploy-kit` repo**.
 - Keep only generic logic, examples, fake domains, fake IPs, and templates in it.
 - Keep all private app details in app repos, GitHub environments, Infisical, or SOPS.
+- Support mixed app repository ownership across personal accounts and organizations.
 
 ### Reusable Workflow Vs Local Workflow Only
 
@@ -205,6 +207,7 @@ Decision:
   - `infisical_cloud`,
   - `infisical_self_hosted`,
   - `sops_age`.
+- Implement all supported providers in the deploy kit. Each app chooses the provider that is operationally convenient for that app.
 - Normalize all provider outputs into one merged secret dictionary.
 - Render `.env` from normalized app runtime secrets.
 - Keep deployment/control-plane secrets separate from app runtime secrets.
@@ -244,12 +247,12 @@ secrets:
       path: /ai
       class: app
     - name: app_runtime
-      project_id: podcast-flow
+      project_id: demo-laravel
       env_slug: production
       path: /app
       class: app
     - name: app_deploy
-      project_id: podcast-flow
+      project_id: demo-laravel
       env_slug: production
       path: /deploy
       class: deploy
@@ -287,6 +290,60 @@ Only app runtime secrets should be rendered into the application `.env`.
 
 Deployment secrets should be used transiently by GitHub Actions/Ansible and should not be written into the app `.env`.
 
+### Inventory Source Resolution
+
+Decision:
+
+- Private inventories mean Ansible target entries such as:
+
+```ini
+vm-a ansible_host=192.0.2.10 ansible_port=22 ansible_user=deploy
+```
+
+- The deploy kit should support this inventory fallback chain:
+  1. GitHub environment secret containing inventory text.
+  2. SOPS-encrypted inventory file.
+  3. Infisical inventory secret.
+- The first configured source with inventory content wins.
+- Generated inventory files in GitHub Actions should be temporary and must not be committed.
+- Public examples must use documentation IP ranges and `.invalid` hostnames only.
+
+### SSH Known Hosts Policy
+
+Decision:
+
+- `known_hosts` should be optional.
+- If a known-hosts value is provided, write it and use strict host key checking.
+- If no known-hosts value is provided, allow a documented non-blocking fallback such as `StrictHostKeyChecking=accept-new`.
+- Production apps may choose to require known hosts in their private workflow or environment rules, but the public kit should not make it mandatory.
+
+### GitHub Environment Approvals
+
+Decision:
+
+- GitHub environment approval is optional.
+- Document it as a GitHub protection feature for production deploys, not a deploy-kit requirement.
+- App repos own whether `production` deploys require manual approval through GitHub environment settings.
+
+### DB/Redis Lifecycle Separation
+
+Decision:
+
+- Regular Laravel backend deployments must not provision or redeploy DB/Redis VMs.
+- DB/Redis provisioning remains available as explicit, one-time operational workflows/playbooks.
+- Production backend rollout should target app/backend VMs only.
+- Staging may still run app, DB, and Redis on one VM if the app manifest and Compose files choose that topology.
+
+### Manifest Layering
+
+Decision:
+
+- Prefer one shared `deploy/manifest.yml` for staging and production.
+- Put small environment-specific differences under `environments.<app_env>` inside the shared manifest.
+- If a full environment-specific manifest exists, for example `deploy/manifest.production.yml`, use it instead of the shared base.
+- If no full environment manifest exists, merge the shared base with inline `environments.<app_env>` and then an optional override file such as `deploy/manifest.production.override.yml`.
+- Dictionary merges are recursive; lists are replaced so environment overrides can replace `compose.files`, `compose.app_services`, `compose.one_time_services`, and `secrets.sources`.
+
 ## Target `laravel-deploy-kit` Repository Structure
 
 ```text
@@ -300,8 +357,8 @@ laravel-deploy-kit/
     workflows/
       laravel-vm-deploy.yml
       vm-bootstrap.yml
-      provision-postgres.yml
-      provision-redis.yml
+      provision-postgres.yml      # one-time DB VM operation
+      provision-redis.yml         # one-time Redis VM operation
       validate-app-manifest.yml
 
   ansible/
@@ -321,6 +378,7 @@ laravel-deploy-kit/
       app_bootstrap/
       repo_checkout/
       compose_preflight/
+      compose_one_time_services/
       docker_cleanup_policy/
       secrets_infisical/
       secrets_sops/
@@ -346,8 +404,7 @@ laravel-deploy-kit/
       refresh-secrets.yml
       bootstrap-vm.yml
     manifests/
-      laravel-compose.staging.yml
-      laravel-compose.production.yml
+      laravel-compose.yml
     docker-compose/
       base.yml
       staging-with-postgres-redis.yml
@@ -382,6 +439,7 @@ laravel-deploy-kit/
     vm-bootstrap.md
     deployment-flow.md
     secret-providers.md
+    manifest.md
     infisical-cloud.md
     infisical-self-hosted.md
     sops-age.md
@@ -408,6 +466,8 @@ app-repo/
   deploy/
     manifest.yml
     manifest.example.yml
+    manifest.production.yml          # optional full environment manifest
+    manifest.production.override.yml # optional partial override
     secrets/
       staging.app.sops.env        # only if SOPS provider is used
       production.app.sops.env     # only if SOPS provider is used
@@ -463,26 +523,27 @@ The app repo owns:
 - concurrency,
 - optional path filtering,
 - environment protection rules,
+- optional production approval rules,
 - app-specific manifest.
 
 The deploy kit owns:
 
 - workflow body,
 - Ansible install/config,
-- inventory creation,
+- temporary inventory resolution from GitHub environment secret, SOPS, or Infisical,
 - secret resolution,
 - deploy playbook execution,
 - VM-side build and rollout logic.
 
 ## Manifest Design
 
-Example manifest:
+Prefer one shared manifest with inline environment overrides:
 
 ```yaml
 schema_version: 1
 
 app:
-  name: podcast-flow
+  name: demo-laravel
   type: laravel
   app_dir: /var/www/app/webroot
   env: "{{ app_env }}"
@@ -493,7 +554,7 @@ repo:
   clean: true
 
 compose:
-  project_name: podcast-flow
+  project_name: demo-laravel
   files:
     - docker-compose.yml
     - "{{ app_env }}.docker-compose.yml"
@@ -531,7 +592,7 @@ health:
 
 secrets:
   provider: infisical
-  url: https://infisical.company.internal
+  url: https://secrets.internal.invalid
   auth:
     method: oidc
   sources:
@@ -541,12 +602,12 @@ secrets:
       path: /ai
       class: app
     - name: app_runtime
-      project_id: podcast-flow
+      project_id: demo-laravel
       env_slug: "{{ app_env }}"
       path: /app
       class: app
     - name: app_deploy
-      project_id: podcast-flow
+      project_id: demo-laravel
       env_slug: "{{ app_env }}"
       path: /deploy
       class: deploy
@@ -562,7 +623,31 @@ secrets:
       mode: "0600"
       include_classes:
         - app
+
+environments:
+  staging:
+    compose:
+      one_time_services:
+        - postgres
+        - redis
+    cleanup:
+      min_free_kb: 10485760
+
+  production:
+    compose:
+      app_services:
+        - web
+        - queues
+        - scheduler
+        - ws
+    cleanup:
+      min_free_kb: 20971520
+    health:
+      retries: 10
+      delay: 6
 ```
+
+Environment-specific full manifests remain supported for apps where staging and production differ heavily.
 
 ## Secret Provider Design
 
@@ -606,7 +691,7 @@ The `render_env_file` role should:
 Support both:
 
 - Infisical Cloud: `https://app.infisical.com`
-- Infisical self-hosted: custom URL such as `https://infisical.company.internal`
+- Infisical self-hosted: custom URL such as `https://secrets.internal.invalid` in public examples.
 
 Authentication options:
 
@@ -626,7 +711,7 @@ sources:
     path: /ai
     class: app
   - name: app_runtime
-    project_id: podcast-flow
+    project_id: demo-laravel
     env_slug: production
     path: /app
     class: app
@@ -735,32 +820,36 @@ For central shared SOPS files across many projects, prefer a separate private se
 2. App repo tiny workflow calls public deploy-kit workflow.
 3. Deploy kit checks out app repo and deploy-kit repo.
 4. Workflow resolves manifest.
-5. Workflow authenticates to secrets provider.
-6. Ansible connects to staging VM.
-7. VM preflight:
+5. Workflow resolves temporary inventory using the configured fallback chain.
+6. Workflow writes optional `known_hosts` if provided, otherwise uses the documented non-blocking SSH fallback.
+7. Workflow authenticates to secrets provider.
+8. Ansible connects to staging VM.
+9. VM preflight:
    - app dir exists,
    - git repo exists,
    - Docker daemon works,
    - Docker Compose plugin works,
    - required compose files exist,
    - disk threshold is satisfied.
-8. Secrets are fetched and rendered to `.env`.
-9. VM git syncs the staging branch.
-10. VM validates compose config.
-11. VM builds Docker image locally with cache.
-12. Horizon is paused/terminated if queues are running.
-13. Migrations run once.
-14. Compose recreates services.
-15. Health check runs.
-16. Service state is printed without secrets.
+10. Secrets are fetched and rendered to `.env`.
+11. VM git syncs the staging branch.
+12. VM validates compose config.
+13. VM builds Docker image locally with cache.
+14. Horizon is paused/terminated if queues are running.
+15. Migrations run once.
+16. Compose recreates services.
+17. Health check runs.
+18. Service state is printed without secrets.
 
 ### Production Multi-VM Flow
 
-1. Push to `production`.
-2. App repo tiny workflow calls public deploy-kit workflow.
-3. Ansible runs with `serial: 1` for backend app VMs.
-4. Migrations run once only.
-5. For each backend VM:
+1. Push to `production`, or manually run the production workflow.
+2. Optional GitHub environment approval may block the job before deploy if the app repo configured that protection.
+3. App repo tiny workflow calls public deploy-kit workflow.
+4. Workflow resolves temporary inventory and optional known hosts.
+5. Ansible runs with `serial: 1` for backend app VMs only.
+6. Migrations run once only.
+7. For each backend VM:
    - preflight,
    - render `.env`,
    - git sync,
@@ -768,7 +857,8 @@ For central shared SOPS files across many projects, prefer a separate private se
    - pause/terminate Horizon,
    - recreate services,
    - health check.
-6. Continue to next VM only after health passes.
+8. Continue to next backend VM only after health passes.
+9. DB/Redis VMs are not provisioned or redeployed during this app rollout.
 
 ## VM Bootstrap Flow
 
@@ -786,7 +876,7 @@ App VM bootstrap:
 - install monitoring/log shipping if configured,
 - validate Docker/Compose.
 
-DB VM bootstrap:
+DB VM bootstrap is a separate one-time operation:
 
 - install Docker,
 - render PostgreSQL Compose/config from VM size profile,
@@ -796,7 +886,7 @@ DB VM bootstrap:
 - health check,
 - optionally create DB/user.
 
-Redis VM bootstrap:
+Redis VM bootstrap is a separate one-time operation:
 
 - install Docker,
 - render Redis config from VM size profile,
@@ -867,7 +957,8 @@ Do not implement this in phase one unless necessary.
 
 `docs/vm-bootstrap.md`
 
-- How to bootstrap app, DB, Redis, and monitoring VMs.
+- How to bootstrap app VMs.
+- How to run one-time DB/Redis provisioning separately from app deploys.
 - Required SSH access.
 - Idempotency expectations.
 
@@ -875,6 +966,9 @@ Do not implement this in phase one unless necessary.
 
 - Staging flow.
 - Production serial rollout flow.
+- Inventory fallback chain.
+- Optional known-hosts behavior.
+- Optional GitHub environment approval.
 - Migrations.
 - Queue drain.
 - Health checks.
@@ -885,6 +979,14 @@ Do not implement this in phase one unless necessary.
 - Common manifest shape.
 - Source merge order.
 - Secret classes.
+
+`docs/manifest.md`
+
+- Full custom manifest reference.
+- Required and optional fields.
+- Provider-specific source shape.
+- Merge and render behavior.
+- What must not be put in the manifest.
 
 `docs/infisical-cloud.md`
 
@@ -927,10 +1029,10 @@ Do not implement this in phase one unless necessary.
 
 `docs/db-redis-provisioning.md`
 
-- DB VM provisioning.
-- Redis VM provisioning.
+- DB VM provisioning as a one-time operation.
+- Redis VM provisioning as a one-time operation.
 - VM profile tuning.
-- When to separate staging/production.
+- Why DB/Redis provisioning is separate from regular production backend deploys.
 
 `docs/monitoring.md`
 
@@ -971,122 +1073,146 @@ Each app should add:
 - How to deploy staging.
 - How to deploy production.
 - How to refresh secrets.
-- Who owns DB/Redis VM provisioning.
+- Whether DB/Redis are already provisioned, and who owns those one-time operations.
 
 ## Execution Phases
 
 ### Phase 1: Create Public Kit Skeleton
 
-- Create repo structure.
-- Add docs skeleton.
-- Add examples with fake values.
-- Add reusable workflow placeholder.
-- Add manifest schema draft.
-- Add Ansible requirements file.
+Status: completed on 2026-06-24.
+
+- [x] Create repo structure.
+- [x] Add docs skeleton.
+- [x] Add examples with fake values.
+- [x] Add reusable workflow placeholder.
+- [x] Add manifest schema draft.
+- [x] Add Ansible requirements file.
 
 ### Phase 2: Implement Manifest Validation
 
-- Validate required keys.
-- Validate compose files.
-- Validate build mode.
-- Validate secret provider shape.
-- Validate source merge order.
-- Add a local validation command.
+Status: completed on 2026-06-24.
+
+- [x] Validate required keys.
+- [x] Validate compose files.
+- [x] Validate build mode.
+- [x] Validate secret provider shape.
+- [x] Validate source merge order.
+- [x] Add a local validation command.
 
 ### Phase 3: Implement Core Deploy Roles
 
-- `repo_checkout`
-- `compose_preflight`
-- `docker_cleanup_policy`
-- `laravel_remote_build`
-- `horizon_drain`
-- `laravel_migrate_once`
-- `compose_rollout`
-- `health_check`
+Status: completed on 2026-06-24.
+
+- [x] `repo_checkout`
+- [x] `compose_preflight`
+- [x] `compose_one_time_services`
+- [x] `docker_cleanup_policy`
+- [x] `laravel_remote_build`
+- [x] `horizon_drain`
+- [x] `laravel_migrate_once`
+- [x] `compose_rollout`
+- [x] `health_check`
 
 ### Phase 4: Implement Secret Provider Interface
 
-- `secrets_infisical`
-- `secrets_sops`
-- `secrets_merge`
-- `render_env_file`
+Status: completed on 2026-06-24.
 
-Start with one provider first, but keep the interface stable.
+- [x] `secrets_infisical`
+- [x] `secrets_sops`
+- [x] `secrets_merge`
+- [x] `render_env_file`
 
-Recommended order:
-
-1. SOPS + age, because it is testable without standing up Infisical.
-2. Infisical Cloud/self-hosted, using the same normalized output.
+Phase 4 is considered complete only when SOPS + age, Infisical Cloud, and Infisical self-hosted all normalize into the same internal interface. SOPS + age remains the easiest local test path, but it is not the only provider to implement.
 
 ### Phase 5: Implement Reusable GitHub Workflow
 
-- Checkout app repo.
-- Checkout deploy-kit repo.
-- Install Ansible.
-- Install required Ansible collections.
-- Configure SSH.
-- Validate manifest.
-- Run deploy playbook.
+Status: completed on 2026-06-24.
 
-### Phase 6: Implement Bootstrap Roles
+- [x] Checkout app repo.
+- [x] Checkout deploy-kit repo.
+- [x] Install Ansible.
+- [x] Install required Ansible collections.
+- [x] Configure SSH.
+- [x] Resolve temporary inventory using fallback chain: GitHub environment secret, then SOPS, then Infisical.
+- [x] Add a reusable inventory resolution utility or workflow step for that chain.
+- [x] Treat `known_hosts` as optional; use strict checking only when provided.
+- [x] Validate manifest.
+- [x] Run deploy playbook.
 
-- Docker install/upgrade.
-- deploy user.
-- app dir.
-- repo clone/check.
-- initial secret render.
-- DB and Redis node setup.
+### Phase 6: Implement Bootstrap And One-Time Provisioning Roles
+
+Status: completed on 2026-06-24.
+
+App host bootstrap:
+
+- [x] Docker install/upgrade.
+- [x] deploy user.
+- [x] app dir.
+- [x] repo clone/check.
+- [x] initial secret render.
+
+Separate one-time infrastructure provisioning:
+
+- [x] PostgreSQL node setup.
+- [x] Redis node setup.
+- [x] Keep DB/Redis provisioning workflows separate from regular Laravel backend deploys.
 
 ### Phase 7: Pilot On One App
 
-Recommended pilot: `podcast-flow`, because it has the newest deployment shape.
+Status: pending external private app/VM access.
 
 Pilot scope:
 
-- staging first,
-- VM-side build,
-- SOPS or Infisical test secrets,
-- render `.env`,
-- deploy,
-- verify health checks,
-- confirm Docker cache is preserved.
+- [ ] staging first,
+- [ ] VM-side build,
+- [ ] SOPS or Infisical test secrets,
+- [ ] render `.env`,
+- [ ] deploy,
+- [ ] verify health checks,
+- [ ] confirm Docker cache is preserved.
 
 ### Phase 8: Production Pilot
 
-- Use production branch.
-- Use serial backend rollout.
-- Confirm migrations run once.
-- Confirm queue drain works.
-- Confirm rollback story is acceptable.
+Status: pending external private app/VM access after Phase 7.
+
+- [ ] Use production branch.
+- [ ] Use serial backend rollout.
+- [ ] Confirm migrations run once.
+- [ ] Confirm queue drain works.
+- [ ] Confirm DB/Redis VMs are not touched by the backend rollout.
+- [ ] Confirm rollback story is acceptable.
 
 ### Phase 9: Migrate Other Apps
 
+Status: pending private app readiness and pilot results.
+
 Order:
 
-1. `ideabuddy`
-2. `viralseek`
-3. `backpips`
-4. `clone-voice`
+- Decide outside this public kit plan based on each private app's readiness.
+- Do not encode private app names, domains, or topology in the public kit.
 
 For each app:
 
-- replace large workflow with tiny trigger workflow,
-- add manifest,
-- configure secret provider,
-- test staging,
-- test production.
+- [ ] replace large workflow with tiny trigger workflow,
+- [ ] add manifest,
+- [ ] configure secret provider,
+- [ ] configure inventory source,
+- [ ] test staging,
+- [ ] test production.
 
 ### Phase 10: Versioning And Updates
 
-- Tag stable releases: `v1.0.0`, `v1.1.0`.
-- App repos pin to major or exact minor:
+Status: repo-side update support completed on 2026-06-24; actual git tags remain release-time operations.
+
+- [ ] Tag stable releases: `v1.0.0`, `v1.1.0`.
+- [x] App repos pin to major or exact minor:
 
 ```yaml
 uses: itsemon245/laravel-deploy-kit/.github/workflows/laravel-vm-deploy.yml@v1
 ```
 
-- Maintain changelog.
-- Add a small drift/update checker later that reports apps not using the latest recommended tag.
+- [x] Maintain changelog.
+- [x] Add a small drift/update checker later that reports apps not using the latest recommended tag.
 
 ## Testing And Verification Strategy
 
@@ -1098,9 +1224,26 @@ Use focused tests:
 - Ansible syntax checks,
 - dry-run/check-mode where useful,
 - local fake inventory smoke tests,
+- reusable workflow static checks,
+- `actionlint` for GitHub workflow syntax,
+- `yamllint` for YAML files,
+- `ansible-lint` for Ansible roles/playbooks,
+- ShellCheck for shell entrypoints,
+- Docker Compose config validation for example Compose stacks,
+- isolated container verification before touching real VMs,
+- Docker-based Ubuntu 24.04 deploy smoke test using an SSH target container,
 - one real staging VM integration test.
 
 Do not test with real secrets in the public repo.
+
+Testing/tooling update on 2026-06-24:
+
+- `make test` runs offline unit/static tests, Python compile checks, and shell syntax checks.
+- `make verify` runs the same required checks and uses optional host tools when installed.
+- `make container-test` runs strict lint/syntax verification in an isolated tool container: yamllint, ansible-lint, actionlint, ShellCheck, and Ansible syntax checks.
+- `make integration-docker` runs a local Ubuntu 24.04 SSH target smoke test. It validates manifest loading, SOPS-style dotenv normalization, `.env` rendering, repo checkout, Compose preflight, one-time services, VM-side build, rollout, and health check behavior. It is not a substitute for a real staging VM.
+- The Ubuntu 24.04 Docker package set is `docker.io` plus `docker-compose-v2`; `docker-compose-plugin` is not the Ubuntu 24.04 package name.
+- `make dev-install` uses `uv` when available and falls back to `pip`. Python CLI scripts are standard-library only; Ansible and lint tooling are environment dependencies, not something Ansible installs automatically.
 
 ## Security Rules
 
@@ -1115,14 +1258,16 @@ Do not test with real secrets in the public repo.
 - Separate app runtime secrets from deployment/control-plane secrets.
 - Render only app runtime secrets into app `.env`.
 
-## Open Questions For Implementation
+## Answered Implementation Questions
 
-- Will Infisical self-hosted be deployed before the first app pilot, or should the pilot use SOPS first?
-- Will app repos live under personal accounts, an organization, or mixed ownership?
-- Should private inventories be kept in GitHub environment secrets, Infisical `/deploy`, or generated from app manifest variables?
-- Should `known_hosts` be mandatory before production deploy, or is `StrictHostKeyChecking=accept-new` acceptable initially?
-- Should production deploys require GitHub environment approval?
-- Which DB/Redis VM sizes need first-class tuning profiles?
+Answered on 2026-06-24:
+
+- Implement all supported secret providers in the deploy kit. Apps can choose SOPS + age, Infisical Cloud, or Infisical self-hosted per project.
+- App repositories may live under mixed ownership: personal accounts, organizations, or both. Reusable workflow examples must remain owner-agnostic.
+- Private inventories mean Ansible target entries such as `vm-a ansible_host=ip ansible_port=port_no`. Support a fallback chain for inventory material: GitHub environment secret first, then SOPS, then Infisical.
+- `known_hosts` should be optional and must not block initial use.
+- GitHub environment approval is optional. Document it as a GitHub protection feature for production deploys, not a required deploy-kit behavior.
+- DB/Redis provisioning should be separate from production backend deployment. DB/Redis VMs are normally one-time setup operations and should not be coupled to regular app rollouts.
 
 ## Final Direction
 
