@@ -46,13 +46,16 @@ This repository currently contains the repo-side deploy-kit foundation:
 
 ## Quick Start For An App Repo
 
+Follow [App Setup](docs/setup.md) for the start-to-finish checklist.
+
+Short version:
+
 1. Copy `templates/app-workflows/deploy.yml` to `.github/workflows/deploy.yml` in the app repo.
-2. Copy `templates/manifests/laravel-compose.yml` to `deploy/manifest.yml`; see `docs/manifest.md` for the manifest contract and environment override rules.
-3. Replace all fake `.invalid` hostnames, documentation IPs, fake project names, and placeholder paths in the app repo.
-4. Configure GitHub environments with only deployment/control-plane credentials.
-5. Configure one secret provider: SOPS + age, Infisical Cloud, or Infisical self-hosted.
-6. Configure private inventory through GitHub environment secret, SOPS, or Infisical.
-7. Keep `.env`, age private keys, SSH keys, tokens, and real inventories out of git.
+2. Copy `templates/manifests/laravel-compose.yml` to `deploy/manifest.yml`.
+3. Configure GitHub environments for deploy/control-plane secrets only.
+4. Choose one app secret provider: SOPS + age, Infisical Cloud, or Infisical self-hosted.
+5. Configure one inventory source: GitHub environment secret, SOPS, or Infisical.
+6. Deploy staging first, then production.
 
 ## Repository Layout
 

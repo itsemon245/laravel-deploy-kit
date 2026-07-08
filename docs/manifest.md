@@ -391,8 +391,6 @@ Each SOPS source needs `name`, `file`, and `class`.
 secrets:
   provider: infisical_self_hosted
   url: https://secrets.internal.invalid
-  auth:
-    method: oidc
   sources:
     - name: shared_runtime
       project_id: demo-shared
@@ -401,7 +399,7 @@ secrets:
       class: app
 ```
 
-Each Infisical source needs `name`, `project_id`, `env_slug`, `path`, and `class`. `url` is required for self-hosted examples and omitted for Infisical Cloud when the CLI default is used.
+Each Infisical source needs `name`, `project_id`, `env_slug`, `path`, and `class`. The reusable workflows read `INFISICAL_TOKEN` from the matching GitHub environment. `url` is required for self-hosted examples and omitted for Infisical Cloud when the CLI default is used.
 
 ### Merge Order
 

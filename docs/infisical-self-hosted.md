@@ -1,8 +1,26 @@
 # Infisical Self-Hosted
 
-Use self-hosted Infisical when the team needs to operate the secret service inside its own environment.
+Use self-hosted Infisical when app runtime secrets should live in Infisical and the team operates the Infisical service itself.
 
-## Recommended Shape
+Follow the same app setup as [Infisical Cloud](infisical-cloud.md), with these differences:
+
+- set `secrets.provider: infisical_self_hosted`,
+- set `secrets.url` to the self-hosted base URL,
+- set `inventory_infisical_url` too if inventory is read from self-hosted Infisical.
+
+```yaml
+secrets:
+  provider: infisical_self_hosted
+  url: https://secrets.internal.invalid
+  sources:
+    - name: app_runtime
+      project_id: demo-laravel
+      env_slug: "{{ app_env }}"
+      path: /app
+      class: app
+```
+
+## Operate The Service
 
 - Use a dedicated hostname such as `secrets.internal.invalid` in examples.
 - Terminate TLS with a managed certificate in the private deployment.
@@ -28,4 +46,3 @@ The deploy kit should only need:
 - class.
 
 It should not depend on cross-project import behavior.
-
